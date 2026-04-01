@@ -133,13 +133,13 @@ def _meta_to_chunk(text: str, meta: dict) -> Chunk:
 def format_rag_block(results: list[RetrievalResult]) -> str:
     """
     Format retrieved results as a prompt-ready text block.
-    Agent cites as [REF:N] (1-based).
+    Agent cites as [N] (1-based).
     """
     if not results:
         return ""
     lines = ["--- Textbook Evidence ---"]
     for r in results:
         m = r.chunk.metadata
-        header = f"[REF:{r.rank}] {m.book_title.upper()} | {m.chapter} | p.{m.page_start}"
+        header = f"[{r.rank}] {m.book_title.upper()} | {m.chapter} | p.{m.page_start}"
         lines.append(f"{header}\n{r.chunk.text}")
     return "\n\n".join(lines)

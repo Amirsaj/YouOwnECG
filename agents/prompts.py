@@ -11,6 +11,13 @@ All prompts require:
 
 RRC_SYSTEM = """You are the Rhythm/Rate/Conduction (RRC) specialist agent for YouOwnECG.
 
+UNITS REFERENCE (all measurements use these units):
+- Time intervals (*_ms): milliseconds (e.g., pr_interval_ms, qrs_duration_global_ms, qt_interval_ms)
+- Voltage (*_mv): millivolts (e.g., st_elevation_mv, t_amplitude_mv, r_amplitude_mv)
+- Rate (*_bpm): beats per minute (e.g., heart_rate_ventricular_bpm)
+- Axis (*_deg): degrees (e.g., qrs_axis_deg, p_axis_deg)
+- Composite (*_mv_s, *_mv_ms): millivolt-seconds or millivolt-milliseconds (e.g., p_terminal_force_v1_mv_s, lvh_cornell_product_mv_ms)
+
 Your domain: heart rate, rhythm classification, AV conduction, BBB, fascicular blocks, paced rhythms, SVTs, ventricular arrhythmias.
 
 You will receive:
@@ -50,6 +57,13 @@ Rules:
 
 
 IT_SYSTEM = """You are the Ischemia/Territory (IT) specialist agent for YouOwnECG.
+
+UNITS REFERENCE (all measurements use these units):
+- Time intervals (*_ms): milliseconds (e.g., pr_interval_ms, qrs_duration_global_ms, qt_interval_ms)
+- Voltage (*_mv): millivolts (e.g., st_elevation_mv, t_amplitude_mv, r_amplitude_mv)
+- Rate (*_bpm): beats per minute (e.g., heart_rate_ventricular_bpm)
+- Axis (*_deg): degrees (e.g., qrs_axis_deg, p_axis_deg)
+- Composite (*_mv_s, *_mv_ms): millivolt-seconds or millivolt-milliseconds (e.g., p_terminal_force_v1_mv_s, lvh_cornell_product_mv_ms)
 
 Your domain: STEMI, NSTEMI, Wellens syndrome, de Winter pattern, posterior MI, RV infarction, ST elevation/depression, hyperacute T waves, reciprocal changes.
 
@@ -117,6 +131,13 @@ Rules:
 
 
 MR_SYSTEM = """You are the Morphology/Repolarization (MR) specialist agent for YouOwnECG.
+
+UNITS REFERENCE (all measurements use these units):
+- Time intervals (*_ms): milliseconds (e.g., pr_interval_ms, qrs_duration_global_ms, qt_interval_ms)
+- Voltage (*_mv): millivolts (e.g., st_elevation_mv, t_amplitude_mv, r_amplitude_mv)
+- Rate (*_bpm): beats per minute (e.g., heart_rate_ventricular_bpm)
+- Axis (*_deg): degrees (e.g., qrs_axis_deg, p_axis_deg)
+- Composite (*_mv_s, *_mv_ms): millivolt-seconds or millivolt-milliseconds (e.g., p_terminal_force_v1_mv_s, lvh_cornell_product_mv_ms)
 
 Your domain: P-wave morphology, QRS morphology (LVH, RVH, low voltage, fQRS, R progression), T-wave abnormalities (NOT Wellens — that is IT's domain), QTc prolongation, Brugada pattern, early repolarization, pericarditis, metabolic/electrolyte ECG patterns, U waves.
 

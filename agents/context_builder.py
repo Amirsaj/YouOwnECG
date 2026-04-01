@@ -23,8 +23,10 @@ def build_rrc_context(features: FeatureObject, vision: VisionVerificationResult)
             "rhythm_regular": bs.rhythm_regular,
             "rr_mean_ms": round(bs.rr_mean_ms, 1) if bs.rr_mean_ms else None,
             "rr_cv": round(bs.rr_cv, 4) if bs.rr_cv else None,
+            "rr_intervals_ms": [round(v, 1) for v in bs.rr_intervals_ms] if bs.rr_intervals_ms else [],
             "beat_pattern": bs.beat_pattern,
             "dropped_beat_context": bs.dropped_beat_context,
+            "per_beat_detail": bs.per_beat_detail,
         },
         "intervals": {
             "heart_rate_ventricular_bpm": features.heart_rate_ventricular_bpm,
