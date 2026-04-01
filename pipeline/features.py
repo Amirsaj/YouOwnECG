@@ -140,6 +140,74 @@ def extract_features(
         idt[lead] = _compute_idt(sig, lf, fs)
         lead_quality_cap[lead] = _quality_cap(quality, lead)
 
+    # --- Morphology analysis ---
+    from pipeline.morphology import (
+        classify_qrs_pattern, classify_st_curvature, classify_t_morphology,
+        assess_concordance, detect_av_relationship,
+    )
+
+    qrs_pat, st_curv, t_sym, t_det_morph, concord = {}, {}, {}, {}, {}
+
+    for lead in leads:
+        if lead not in fpt or len(fpt[lead]) == 0:
+            qrs_pat[lead] = "unknown"
+            st_curv[lead] = "unknown"
+            t_sym[lead] = None
+            t_det_morph[lead] = "unknown"
+            concord[lead] = "unknown"
+            continue
+
+        li = lead_idx[lead]
+        sig = morph[li]
+        lf = fpt[lead]
+
+        # Use median beat (most representative)
+        mid_beat = lf[len(lf) // 2]
+
+        # QRS pattern
+        qon, qoff = int(mid_beat[COL_QRSON]), int(mid_beat[COL_QRSOFF])
+        if qon > 0 and qoff > 0 and qoff > qon:
+            qrs_result = classify_qrs_pattern(sig, qon, qoff, fs)
+            qrs_pat[lead] = qrs_result.get("pattern", "unknown")
+        else:
+            qrs_pat[lead] = "unknown"
+
+        # ST curvature
+        qoff_idx = int(mid_beat[COL_QRSOFF])
+        ton_idx = int(mid_beat[COL_TON])
+        tpk_idx = int(mid_beat[COL_TPEAK])
+        if qoff_idx > 0 and ton_idx > 0 and ton_idx > qoff_idx:
+            st_result = classify_st_curvature(sig, qoff_idx, ton_idx, tpk_idx, fs)
+            st_curv[lead] = st_result.get("curvature", "unknown")
+        else:
+            st_curv[lead] = "unknown"
+
+        # T-wave morphology
+        ton = int(mid_beat[COL_TON])
+        tpk = int(mid_beat[COL_TPEAK])
+        toff = int(mid_beat[COL_TOFF])
+        if ton > 0 and tpk > 0 and toff > 0:
+            t_result = classify_t_morphology(sig, ton, tpk, toff, fs)
+            t_sym[lead] = t_result.get("symmetry_index")
+            t_det_morph[lead] = t_result.get("morphology_label", "unknown")
+        else:
+            t_sym[lead] = None
+            t_det_morph[lead] = "unknown"
+
+        # Concordance (only meaningful if BBB is present)
+        st_e = st_elev.get(lead) or 0
+        st_d = st_dep.get(lead) or 0
+        s_a = s_amp.get(lead) or 0
+        if qon > 0 and qoff > 0:
+            conc_result = assess_concordance(sig, qon, qoff, st_e, st_d, s_a, fs)
+            concord[lead] = conc_result.get("concordance", "unknown")
+        else:
+            concord[lead] = "unknown"
+
+    # AV relationship (global)
+    av_rel_result = detect_av_relationship(ref_fpt, fs)
+    av_rel = av_rel_result.get("av_relationship", "unknown") if av_rel_result else "unknown"
+
     # --- R progression ---
     r_prog = _r_progression(r_amp, leads)
 
@@ -292,6 +360,12 @@ def extract_features(
         r_progression_index=r_prog_idx,
         pr_depression_mv=pr_dep,
         measurement_flags=meas_flags,
+        qrs_pattern=qrs_pat,
+        st_curvature=st_curv,
+        t_symmetry_index=t_sym,
+        t_detailed_morphology=t_det_morph,
+        concordance_analysis=concord,
+        av_relationship=av_rel,
         sdnn_ms=sdnn,
         rmssd_ms=rmssd,
         lead_quality_cap=lead_quality_cap,

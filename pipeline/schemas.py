@@ -255,6 +255,14 @@ class FeatureObject:
     # --- Beat summary ---
     beat_summary: BeatSummary
 
+    # --- Morphology analysis (from pipeline/morphology.py) ---
+    qrs_pattern: dict[str, str] = field(default_factory=dict)         # lead → "QS"|"rS"|"RSR'"|"qRs"|etc
+    st_curvature: dict[str, str] = field(default_factory=dict)        # lead → "concave"|"convex"|"linear"|"coved"
+    t_symmetry_index: dict[str, Optional[float]] = field(default_factory=dict)  # lead → 0.0-1.0
+    t_detailed_morphology: dict[str, str] = field(default_factory=dict)  # lead → detailed T-wave type
+    concordance_analysis: dict[str, str] = field(default_factory=dict)   # lead → "concordant"|"discordant"
+    av_relationship: str = "unknown"  # "1:1"|"dissociated"|"wenckebach"|"2:1"|"variable"
+
 
 # ---------------------------------------------------------------------------
 # Node 1.6 — Vision Pipeline

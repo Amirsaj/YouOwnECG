@@ -97,6 +97,13 @@ def detect_fiducials(
     morph_safe = record.morphology_signal[:, safe_start:safe_end]
     fpt_dict = refine_fiducials(fpt_dict, morph_safe, record.lead_names, fs)
 
+    # Validate fiducials using morphology analysis
+    from pipeline.morphology import validate_fiducials_by_morphology
+    morph_validation = validate_fiducials_by_morphology(
+        morph_safe, fpt_dict, record.lead_names, fs
+    )
+    fpt_dict = morph_validation["fpt"]
+
     # n_beats: use lead II if available, else first non-empty lead
     n_beats = _count_beats_in_fpt(fpt_dict)
 

@@ -233,18 +233,19 @@ def _describe_beat_lead(
                 pathological = " (PATHOLOGICAL)" if q_dur > 40 else ""
                 qrs_desc += f", q={q_amp:.2f}mV/{q_dur:.0f}ms{pathological}"
 
-        # R/S morphology pattern
-        if r_idx > 0 and s_idx > 0 and 0 <= r_idx < N and 0 <= s_idx < N:
-            r_val = abs(float(sig[r_idx]))
-            s_val = abs(float(sig[s_idx]))
-            if lead in ("V1", "V2"):
-                if r_val > s_val:
-                    qrs_desc += " [R>S: consider RVH/posterior MI/RBBB]"
-                elif s_val > 3 * r_val:
-                    qrs_desc += " [deep S: normal or LVH]"
-            elif lead in ("V5", "V6", "I"):
-                if s_val > r_val:
-                    qrs_desc += " [S>R: consider RBBB/RVH]"
+        # QRS morphology pattern (replaces simple R/S comparison)
+        if qrs_on > 0 and qrs_off > 0 and qrs_off > qrs_on:
+            from pipeline.morphology import classify_qrs_pattern
+            qrs_morph = classify_qrs_pattern(sig, qrs_on, qrs_off, fs)
+            pattern = qrs_morph.get("pattern", "unknown")
+            polarity = qrs_morph.get("net_polarity", "unknown")
+            qrs_desc += f". Pattern: {pattern} ({polarity})"
+            if qrs_morph.get("r_prime_present"):
+                qrs_desc += " [R' present — RBBB-type]"
+            if qrs_morph.get("notching"):
+                qrs_desc += " [notched — LBBB-type]"
+            if qrs_morph.get("delta_wave"):
+                qrs_desc += " [DELTA WAVE — WPW?]"
 
         parts.append(qrs_desc)
 
@@ -272,17 +273,19 @@ def _describe_beat_lead(
         else:
             parts.append("ST isoelectric")
 
-        # ST morphology
-        if t_on > 0 and t_on > qrs_off:
-            st_seg = sig[qrs_off:t_on].astype(float)
-            if len(st_seg) >= 3:
-                slope = np.polyfit(np.arange(len(st_seg)), st_seg, 1)[0]
-                if slope > 2:
-                    parts[-1] += " (upsloping)"
-                elif slope < -2:
-                    parts[-1] += " (downsloping)"
-                else:
-                    parts[-1] += " (horizontal)"
+        # ST curvature (replaces simple slope description)
+        if qrs_off > 0 and t_on > 0 and t_on > qrs_off:
+            from pipeline.morphology import classify_st_curvature
+            st_morph = classify_st_curvature(sig, qrs_off, t_on, t_peak if t_peak > 0 else t_on + 50, fs)
+            curv = st_morph.get("curvature", "")
+            if curv == "concave":
+                parts[-1] += " (concave-up, smiley — pericarditis/BER pattern)"
+            elif curv == "convex":
+                parts[-1] += " (convex, frowning — STEMI pattern)"
+            elif curv == "coved":
+                parts[-1] += " (COVED dome → descent — Brugada Type 1 pattern)"
+            elif curv == "linear":
+                parts[-1] += " (horizontal)"
 
     # --- T wave ---
     if t_peak > 0 and 0 <= t_peak < N:
@@ -306,6 +309,21 @@ def _describe_beat_lead(
         if qrs_on > 0 and t_off > 0 and t_off > qrs_on:
             qt_ms = (t_off - qrs_on) / fs * 1000
             t_desc += f", QT={qt_ms:.0f}ms"
+
+        # T-wave symmetry
+        if t_on > 0 and t_peak > 0 and t_off > 0:
+            from pipeline.morphology import classify_t_morphology
+            t_morph_detail = classify_t_morphology(sig, t_on, t_peak, t_off, fs)
+            sym = t_morph_detail.get("symmetry_index")
+            label = t_morph_detail.get("morphology_label", "")
+            if sym is not None and sym > 0.7 and t_amp_mv < -0.15:
+                t_desc += f" [SYMMETRIC inversion (sym={sym:.2f}) — Wellens/ischemia]"
+            elif sym is not None and sym < 0.5 and t_amp_mv < -0.15:
+                t_desc += f" [ASYMMETRIC inversion (sym={sym:.2f}) — LVH strain]"
+            if t_morph_detail.get("notched"):
+                t_desc += " [NOTCHED — consider LQT2]"
+            if t_morph_detail.get("biphasic"):
+                t_desc += f" [BIPHASIC — {label}]"
 
         parts.append(t_desc)
 
