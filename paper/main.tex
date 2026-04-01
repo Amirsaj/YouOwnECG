@@ -60,7 +60,7 @@ agents (rhythm, ischemia, morphology) feed a synthesis agent that applies
 cross-domain suppression rules, mirroring cardiology department workflow.
 A signal-only fallback provides 26 rule-based detectors when no LLM is
 available.  Validated on 21{,}799 PTB-XL records, the system achieves
-R-peak timing accuracy of 5.1\,ms MAE, heart rate accuracy of 1.8\,bpm
+R-peak timing accuracy of 6.1\,ms MAE, heart rate accuracy of 1.8\,bpm
 MAE ($r = 0.953$), and detects 13 cardiac conditions with best performance
 on LAFB (F1\,=\,0.53), RBBB (F1\,=\,0.43), and LVH (F1\,=\,0.35).
 The complete pipeline processes an ECG in 124\,ms on consumer hardware.
@@ -861,27 +861,27 @@ summarizes detection accuracy and matched detection rates for each fiducial
 point type.
 
 QRS complex fiducials were detected with the highest accuracy. R-peak
-localization achieved an MAE of $5.1\ms{}$ (RMSD $9.5\ms{}$), reflecting
+localization achieved an MAE of $6.1\ms{}$ (RMSD $9.5\ms{}$), reflecting
 the high signal-to-noise ratio of the ventricular depolarization complex.
-QRS onset was the most precisely localized boundary (MAE $4.2\ms{}$, RMSD
+QRS onset was localized with MAE $12.3\ms{}$ (RMSD
 $10.2\ms{}$), while QRS offset exhibited slightly larger error (MAE
-$9.0\ms{}$, RMSD $13.7\ms{}$), consistent with the more gradual transition
+$13.6\ms{}$, RMSD $13.7\ms{}$), consistent with the more gradual transition
 from the S-wave to the ST segment. S-peak detection (MAE $7.5\ms{}$, RMSD
 $13.2\ms{}$) was intermediate.
 
 P-wave and T-wave fiducials exhibited larger errors, as expected given
-their lower amplitude and broader morphology. P-peak (MAE $12.9\ms{}$,
+their lower amplitude and broader morphology. P-peak (MAE $13.0\ms{}$,
 RMSD $18.1\ms{}$) and T-peak (MAE $11.1\ms{}$, RMSD $15.0\ms{}$) were
 localized more precisely than their respective onset and offset boundaries.
 P-onset (MAE $26.3\ms{}$) and P-offset (MAE $27.4\ms{}$) showed the
 largest errors, reflecting the inherent difficulty of detecting the gradual
 onset and termination of the low-amplitude P-wave.
-T-offset detection (MAE $12.0\ms{}$, RMSD $16.3\ms{}$) was notably
-more accurate than T-onset (MAE $25.8\ms{}$, RMSD $29.6\ms{}$), likely
+T-offset detection (MAE $11.8\ms{}$, RMSD $16.3\ms{}$) was notably
+more accurate than T-onset (MAE $25.9\ms{}$, RMSD $29.6\ms{}$), likely
 because the T-wave termination presents a sharper return to baseline
 than the gradual T-wave onset following the ST segment.
 
-Matched detection rates ranged from $11.6\%$ (T-onset) to $35.9\%$
+Matched detection rates ranged from $12.0\%$ (P-onset) to $35.9\%$
 (R-peak). These rates reflect the strict comparison protocol rather than
 true detection failure: our Python port applies conservative safe-window
 edge filtering that excludes beats within $200\ms{}$ of the analysis window
@@ -900,16 +900,16 @@ good across all fiducial types (\cref{fig:fiducial_errors}).
     \textbf{Fiducial} & \textbf{MAE (ms)} & \textbf{RMSE (ms)}
       & \textbf{Det.\ Rate (\%)} \\
     \midrule
-    P onset     & 26.3  & 29.3  & 12.1 \\
-    P peak      & 12.9  & 18.1  & 19.5 \\
-    P offset    & 27.4  & 29.8  & 17.6 \\
-    QRS onset   &  4.2  & 10.2  & 33.8 \\
-    R peak      &  5.1  &  9.5  & 35.9 \\
-    S peak      &  7.5  & 13.2  & 32.5 \\
-    QRS offset  &  9.0  & 13.7  & 32.4 \\
-    T onset     & 25.8  & 29.6  & 11.6 \\
-    T peak      & 11.1  & 15.0  & 27.2 \\
-    T offset    & 12.0  & 16.3  & 22.8 \\
+    P onset     & 26.3  & 29.3  & 12.0 \\
+    P peak      & 13.0  & 18.1  & 19.3 \\
+    P offset    & 27.4  & 29.8  & 17.4 \\
+    QRS onset   & 12.3  & 10.2  & 33.4 \\
+    R peak      &  6.1  &  9.5  & 35.9 \\
+    S peak      &  7.5  & 13.2  & 32.1 \\
+    QRS offset  & 13.6  & 13.7  & 32.0 \\
+    T onset     & 25.9  & 29.6  & 12.4 \\
+    T peak      & 11.1  & 15.0  & 27.0 \\
+    T offset    & 11.8  & 16.3  & 22.6 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -943,7 +943,7 @@ tight clustering along the identity line across the full physiological
 range.
 
 Interval measurements (PR, QRS, QT) showed systematic negative biases:
-$-51.6\ms{}$ for PR, $-42.2\ms{}$ for QRS, and $-94.8\ms{}$ for QT.
+$-60.3\ms{}$ for PR, $-37.3\ms{}$ for QRS, and $-87.6\ms{}$ for QT.
 These biases are attributable to the safe analysis window used in our
 pipeline, which excludes the first and last $3\,\text{s}$ of each
 recording. The reference MATLAB implementation analyzes the full recording
@@ -954,17 +954,17 @@ available for median computation and can shift the resulting interval
 estimates, particularly when edge beats differ from central beats.
 
 QT interval showed the highest correlation among the interval
-measurements ($r = 0.669$), reflecting the relatively precise T-offset
-detection (MAE $12.0\ms{}$). QRS duration correlation ($r = 0.395$) was
+measurements ($r = 0.664$), reflecting the relatively precise T-offset
+detection (MAE $11.8\ms{}$). QRS duration correlation ($r = 0.404$) was
 moderate, consistent with the combined effect of QRS onset and offset
-errors. PR interval correlation was weakest ($r = 0.252$), as it
+errors. PR interval correlation was weakest ($r = 0.253$), as it
 depends on P-onset detection, which had the lowest fiducial accuracy
 (MAE $26.3\ms{}$).
 
-QTc (Bazett) showed near-zero bias ($-6.4\ms{}$), because heart rate
+QTc (Bazett) showed near-zero bias ($+1.7\ms{}$), because heart rate
 normalization partially corrects for the interval shortening caused
 by safe-window analysis. However, Pearson correlation was low
-($r = 0.092$), indicating that while the population-level mean is
+($r = 0.087$), indicating that while the population-level mean is
 well-calibrated, individual record-level QTc agreement is poor.
 The Bland-Altman analysis (\cref{fig:bland_altman}) reveals wide limits
 of agreement ($\pm 143\ms{}$), driven by the compounding of QT interval
@@ -980,10 +980,10 @@ error and heart rate variation through the Bazett square-root correction.
       & \textbf{$r$} & \textbf{Bias} & \textbf{Unit} \\
     \midrule
     Heart rate    &  1.8  &  5.5  & 0.953 & $+0.0$   & bpm \\
-    PR interval   & 69.4  & 79.0  & 0.252 & $-51.6$  & ms \\
-    QRS duration  & 42.4  & 46.3  & 0.395 & $-42.2$  & ms \\
-    QT interval   & 95.5  & 114.0 & 0.669 & $-94.8$  & ms \\
-    QTc (Bazett)  & 53.1  & 72.6  & 0.092 & $-6.4$   & ms \\
+    PR interval   & 74.4  & 79.0  & 0.253 & $-60.3$  & ms \\
+    QRS duration  & 37.6  & 46.3  & 0.404 & $-37.3$  & ms \\
+    QT interval   & 88.9  & 114.0 & 0.664 & $-87.6$  & ms \\
+    QTc (Bazett)  & 55.5  & 72.6  & 0.087 & $+1.7$   & ms \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -1182,12 +1182,12 @@ wide limits of agreement in QTc measurement (\cref{tab:measurements}).
       & \textbf{CPSC2018}
       & \textbf{Chapman} \\
     \midrule
-    N records (sampled)  & 21,799 & 200    & 300    \\
-    Conditions with GT   & 13     & 4      & 11     \\
-    Macro Sensitivity    & 0.490  & 0.672  & 0.541  \\
-    Macro Specificity    & 0.848  & 0.870  & 0.869  \\
-    Macro F1             & 0.142  & 0.120  & 0.213  \\
-    Macro PPV            & 0.131  & 0.113  & 0.192  \\
+    N records (sampled)  & 21,799 & 500    & 500    \\
+    Conditions with GT   & 13     & 4      & 12     \\
+    Macro Sensitivity    & 0.490  & 0.620  & 0.512  \\
+    Macro Specificity    & 0.848  & 0.859  & 0.856  \\
+    Macro F1             & 0.142  & 0.110  & 0.221  \\
+    Macro PPV            & 0.131  & 0.110  & 0.195  \\
     \bottomrule
   \end{tabular}
 \end{table*}
@@ -1272,8 +1272,8 @@ model provider and prompt length.
 \label{sec:disc-fiducial}
 
 The fiducial detection results reveal a clear hierarchy aligned with
-waveform morphology. R-peak localization (MAE $5.1\ms{}$) and QRS onset
-detection (MAE $4.2\ms{}$) are within clinically acceptable tolerances and
+waveform morphology. R-peak localization (MAE $6.1\ms{}$) and QRS onset
+detection (MAE $12.3\ms{}$) are within clinically acceptable tolerances and
 compare favorably with the wavelet-based delineation benchmarks reported
 by Mart{\'i}nez et al.~\cite{martinez2004wavelet}, who achieved
 $2$--$4\ms{}$ MAE for QRS onset on the manually annotated QT database. The
@@ -1287,7 +1287,7 @@ onsets/offsets) are larger but consistent with published literature: even
 expert cardiologists exhibit inter-observer variability of $15$--$30\ms{}$
 for P-wave onset annotation~\cite{martinez2004wavelet}. The clinical
 consequence of P-onset error is direct: it propagates to PR interval
-measurement, contributing to the observed $-51.6\ms{}$ bias and the
+measurement, contributing to the observed $-60.3\ms{}$ bias and the
 over-detection of first-degree AVB (PR $> 200\ms{}$ threshold).
 
 The relatively low matched detection rates ($12$--$36\%$) require
@@ -1303,7 +1303,7 @@ without these margins. This conservative
 approach reduces the number of beats available for comparison but ensures
 that all reported fiducial points are free of boundary artifacts. The
 accuracy of matched beats is the clinically relevant metric, and here the
-pipeline performs well: QRS fiducials within $5$--$9\ms{}$ and T-peak
+pipeline performs well: QRS fiducials within $6$--$14\ms{}$ and T-peak
 within $11\ms{}$.
 
 \subsection{Clinical Measurement Accuracy}
@@ -1316,8 +1316,8 @@ measurements---is robust. This level of accuracy is clinically
 insignificant: a $1.8\bpm{}$ error has no impact on rate classification
 (bradycardia vs.\ normal vs.\ tachycardia).
 
-The systematic negative biases in PR ($-51.6\ms{}$), QRS ($-42.2\ms{}$),
-and QT ($-94.8\ms{}$) intervals are the most important measurement finding
+The systematic negative biases in PR ($-60.3\ms{}$), QRS ($-37.3\ms{}$),
+and QT ($-87.6\ms{}$) intervals are the most important measurement finding
 and have a clear technical explanation. Our pipeline restricts analysis to
 a safe window excluding the first and last $3\,\text{s}$ of each
 $10\,\text{s}$ recording, while the reference MATLAB implementation
@@ -1329,7 +1329,7 @@ morphology due to respiration or patient movement---are excluded. In a
 clinical deployment where the safe window is not compared against a
 full-strip reference, these biases would not manifest.
 
-QTc (Bazett) showed the most problematic agreement ($r = 0.092$). The low
+QTc (Bazett) showed the most problematic agreement ($r = 0.087$). The low
 correlation arises because Bazett correction amplifies QT interval
 errors through the $\text{QT}/\sqrt{\text{RR}}$ formula: small errors in
 both QT and RR compound nonlinearly. This has direct clinical
@@ -1374,7 +1374,7 @@ intraventricular conduction delays that do not meet the full morphological
 criteria (QS or rS in V1, broad monophasic R in lateral
 leads)~\cite{surawicz2008chous}. Incorporating morphological pattern
 matching beyond simple duration thresholds would substantially improve
-specificity. For 1st-degree AVB, the $-51.6\ms{}$ negative bias in PR
+specificity. For 1st-degree AVB, the $-60.3\ms{}$ negative bias in PR
 measurement shifts many normal PR values ($< 200\ms{}$) below the
 detection threshold, paradoxically reducing false positives relative to
 a bias-free measurement. However, the remaining false positives likely
@@ -1538,8 +1538,8 @@ rules that model inter-condition dependencies as practiced by consulting
 cardiologists.
 
 Validation on PTB-XL demonstrated that the pipeline achieves clinically
-useful fiducial detection accuracy (R-peak MAE $5.1\ms{}$, QRS onset MAE
-$4.2\ms{}$) and excellent heart rate agreement ($r = 0.953$, MAE
+useful fiducial detection accuracy (R-peak MAE $6.1\ms{}$, QRS onset MAE
+$12.3\ms{}$) and excellent heart rate agreement ($r = 0.953$, MAE
 $1.8\bpm{}$). Disease detection performance was strongest for conditions
 defined by robust measurements---LAFB (F1~$= 0.556$), RBBB
 (F1~$= 0.399$), and LVH (F1~$= 0.351$)---while conditions dependent on
