@@ -2,13 +2,16 @@
 Context assembly for agent prompts.
 
 Builds the user-prompt context block from FeatureObject + VisionVerificationResult.
-Keeps token budget tight: BeatSummary (~600 tokens) + selected feature values.
-The full FeatureObject is NOT forwarded — only the fields relevant to each agent.
+Includes both structured measurements AND beat-by-beat narrative descriptions
+so LLMs can reason about morphology the way cardiologists do.
 """
 
 from __future__ import annotations
 from typing import Optional
-from pipeline.schemas import FeatureObject, VisionVerificationResult
+from pipeline.schemas import (
+    FeatureObject, VisionVerificationResult,
+    PreprocessedECGRecord, FiducialTable,
+)
 from agents.deepseek import serialize_for_prompt, _strip_phi
 
 
@@ -178,6 +181,30 @@ def build_cds_context(
         "vision_conflicts": len(vision.signal_vision_conflicts),
     }
     return serialize_for_prompt(ctx)
+
+
+def build_narrative_block(
+    record: Optional[PreprocessedECGRecord],
+    fiducials: Optional[FiducialTable],
+    features: FeatureObject,
+) -> str:
+    """
+    Generate beat-by-beat ECG narrative for LLM context.
+
+    Returns a multi-line narrative describing each beat's morphology
+    across key leads (II, V1, V5), rhythm patterns, and cross-lead
+    comparisons. Typically 800-1500 tokens.
+
+    If record or fiducials are not available, returns empty string
+    (graceful degradation — agents still work with structured data).
+    """
+    if record is None or fiducials is None:
+        return ""
+    try:
+        from pipeline.narrator import narrate_ecg
+        return narrate_ecg(record, fiducials, features)
+    except Exception:
+        return ""
 
 
 def build_measurements_block(features: FeatureObject) -> dict:

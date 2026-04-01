@@ -24,7 +24,7 @@ from agents.deepseek import call_agent, extract_json, serialize_for_prompt
 from agents.prompts import RRC_SYSTEM, IT_SYSTEM, MR_SYSTEM, CDS_SYSTEM
 from agents.context_builder import (
     build_rrc_context, build_it_context, build_mr_context,
-    build_cds_context, build_measurements_block,
+    build_cds_context, build_measurements_block, build_narrative_block,
 )
 
 PIPELINE_VERSION = "1.0.0"
@@ -37,14 +37,25 @@ async def run_diagnostic(
     db=None,
     rag_store=None,
     call_agent_fn=None,
+    record=None,
+    fiducials=None,
 ) -> DiagnosticResult:
     """
     Run the full diagnostic pipeline: Phase 1 (parallel) → Phase 2 (CDS).
+
+    Args:
+        record: Optional PreprocessedECGRecord for beat-by-beat narrative.
+        fiducials: Optional FiducialTable for beat-by-beat narrative.
+        If both provided, a morphological narrative is appended to each agent's context.
 
     Returns DiagnosticResult with all findings, STAT alerts, and measurements.
     """
     _call = call_agent_fn or call_agent
     ecg_id = features.ecg_id
+
+    # --- Beat-by-beat narrative (morphology descriptions for LLM) ---
+    narrative = build_narrative_block(record, fiducials, features)
+    narrative_section = f"\n\n--- Beat-by-Beat Morphology ---\n{narrative}" if narrative else ""
 
     # --- RAG retrieval (per-agent domain queries) ---
     rag_blocks, rag_results_by_agent = _build_rag_blocks(features, rag_store)
@@ -53,7 +64,7 @@ async def run_diagnostic(
     rrc_task = asyncio.create_task(
         _call_phase1_agent(
             "RRC", RRC_SYSTEM,
-            build_rrc_context(features, vision),
+            build_rrc_context(features, vision) + narrative_section,
             ecg_id, db, rag_blocks.get("RRC", ""),
             call_fn=_call,
         )
@@ -61,7 +72,7 @@ async def run_diagnostic(
     it_task = asyncio.create_task(
         _call_phase1_agent(
             "IT", IT_SYSTEM,
-            build_it_context(features, vision),
+            build_it_context(features, vision) + narrative_section,
             ecg_id, db, rag_blocks.get("IT", ""),
             call_fn=_call,
         )
@@ -69,7 +80,7 @@ async def run_diagnostic(
     mr_task = asyncio.create_task(
         _call_phase1_agent(
             "MR", MR_SYSTEM,
-            build_mr_context(features, vision),
+            build_mr_context(features, vision) + narrative_section,
             ecg_id, db, rag_blocks.get("MR", ""),
             call_fn=_call,
         )
