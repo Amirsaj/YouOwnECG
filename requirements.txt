@@ -1,0 +1,33 @@
+# YouOwnECG — Python dependencies
+# Python 3.9.6 | Apple Silicon (MPS)
+
+# Signal processing
+numpy>=1.24
+scipy>=1.10
+wfdb>=4.1
+pyEDFlib>=0.1.22
+matplotlib>=3.7
+
+# ML pipeline (local models)
+torch>=2.1
+transformers>=4.38     # CLIP for figure embeddings
+
+# RAG / vector store
+faiss-cpu>=1.7.4       # use faiss-cpu; GPU not needed at 3K vectors
+openai>=1.14           # text-embedding-3-small + DeepSeek-compatible endpoint
+PyMuPDF>=1.23          # fitz — PDF book ingestion
+scikit-learn>=1.3      # KMeans for column layout detection
+tiktoken>=0.6          # tokenizer for chunk size counting
+Pillow>=10.0           # ECG image rendering for VL2
+
+# Backend
+fastapi>=0.110
+uvicorn[standard]>=0.27
+httpx>=0.27            # async HTTP client for DeepSeek API
+pydantic>=2.6
+
+# Database / audit
+aiosqlite>=0.19        # async SQLite for audit trail
+
+# Utilities
+python-dotenv>=1.0

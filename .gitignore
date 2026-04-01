@@ -1,0 +1,42 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Data & datasets
+data/
+DB/
+*.db
+*.sqlite
+
+# Validation results (regenerated)
+validation/results/
+
+# Paper figures (regenerated from CSVs)
+paper/figures/*.png
+paper/figures/*.pdf
+
+# Node
+node_modules/
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Claude
+.claude/settings.local.json

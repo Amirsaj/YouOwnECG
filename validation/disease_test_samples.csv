@@ -1,0 +1,111 @@
+ecg_id,condition,scp_codes,filename_hr
+6174,lbbb,"{'CLBBB': 100.0, 'SR': 0.0}",records500/06000/06174_hr
+6589,lbbb,"{'CLBBB': 100.0, 'SR': 0.0}",records500/06000/06589_hr
+7304,lbbb,{'CLBBB': 100.0},records500/07000/07304_hr
+11288,lbbb,"{'CLBBB': 100.0, 'AFIB': 0.0}",records500/11000/11288_hr
+5042,lbbb,"{'CLBBB': 100.0, '1AVB': 100.0, 'SR': 0.0}",records500/05000/05042_hr
+15906,lbbb,"{'CLBBB': 100.0, 'SR': 0.0}",records500/15000/15906_hr
+346,lbbb,"{'CLBBB': 100.0, '1AVB': 100.0, 'SR': 0.0}",records500/00000/00346_hr
+20245,lbbb,"{'CLBBB': 100.0, 'SR': 0.0}",records500/20000/20245_hr
+8432,lbbb,"{'CLBBB': 100.0, 'SR': 0.0}",records500/08000/08432_hr
+3479,lbbb,"{'CLBBB': 100.0, '1AVB': 100.0, 'PVC': 100.0, 'SR': 0.0}",records500/03000/03479_hr
+10752,rbbb,"{'CRBBB': 100.0, 'NST_': 0.0, 'QWAVE': 0.0, 'AFLT': 0.0}",records500/10000/10752_hr
+3455,rbbb,"{'CRBBB': 100.0, 'LAFB': 100.0, '1AVB': 100.0, 'LPR': 0.0, 'SR': 0.0}",records500/03000/03455_hr
+14599,rbbb,"{'LAFB': 100.0, 'CRBBB': 100.0, 'PAC': 0.0, 'SR': 0.0}",records500/14000/14599_hr
+3802,rbbb,"{'IMI': 80.0, 'CRBBB': 100.0, '1AVB': 100.0}",records500/03000/03802_hr
+19007,rbbb,"{'ASMI': 100.0, 'CRBBB': 100.0, 'LPFB': 100.0, 'AFIB': 0.0}",records500/19000/19007_hr
+3504,rbbb,"{'CRBBB': 100.0, 'LAFB': 100.0, 'RVH': 100.0, 'SR': 0.0}",records500/03000/03504_hr
+12755,rbbb,"{'CRBBB': 100.0, 'SR': 0.0}",records500/12000/12755_hr
+18984,rbbb,"{'ASMI': 100.0, 'CRBBB': 100.0, 'LAFB': 100.0, 'ABQRS': 0.0, 'STACH': 0.0}",records500/18000/18984_hr
+14360,rbbb,"{'ASMI': 100.0, 'CRBBB': 100.0, 'LPFB': 50.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/14000/14360_hr
+16259,rbbb,"{'CRBBB': 100.0, 'SR': 0.0}",records500/16000/16259_hr
+19647,first_degree_avb,"{'ISCAN': 100.0, '1AVB': 100.0, 'IVCD': 100.0, 'DIG': 100.0, 'SR': 0.0}",records500/19000/19647_hr
+21402,first_degree_avb,"{'ISCAS': 100.0, '1AVB': 100.0, 'IVCD': 100.0, 'SR': 0.0}",records500/21000/21402_hr
+1939,first_degree_avb,"{'ASMI': 100.0, '1AVB': 100.0, 'QWAVE': 0.0, 'SR': 0.0}",records500/01000/01939_hr
+15519,first_degree_avb,"{'LAFB': 100.0, 'LAO/LAE': 100.0, '1AVB': 100.0, 'SARRH': 0.0}",records500/15000/15519_hr
+2113,first_degree_avb,"{'LAO/LAE': 80.0, 'NDT': 100.0, '1AVB': 100.0, 'LPR': 0.0, 'SR': 0.0}",records500/02000/02113_hr
+20947,first_degree_avb,"{'ASMI': 100.0, 'CRBBB': 100.0, '1AVB': 100.0, 'LAO/LAE': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/20000/20947_hr
+11071,first_degree_avb,"{'AMI': 50.0, 'INJAL': 100.0, '1AVB': 100.0, 'SR': 0.0}",records500/11000/11071_hr
+19477,first_degree_avb,"{'1AVB': 100.0, 'SR': 0.0}",records500/19000/19477_hr
+16163,first_degree_avb,"{'1AVB': 100.0, 'SR': 0.0}",records500/16000/16163_hr
+17995,first_degree_avb,"{'NDT': 100.0, 'LAO/LAE': 100.0, '1AVB': 100.0, 'PAC': 0.0, 'LPR': 0.0, 'SR': 0.0}",records500/17000/17995_hr
+1832,lafb,"{'LAFB': 80.0, 'SR': 0.0}",records500/01000/01832_hr
+6291,lafb,"{'IMI': 15.0, 'LAFB': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/06000/06291_hr
+11436,lafb,"{'IRBBB': 100.0, 'LAFB': 100.0, 'SR': 0.0}",records500/11000/11436_hr
+16575,lafb,"{'LAFB': 100.0, 'SR': 0.0}",records500/16000/16575_hr
+8616,lafb,"{'ASMI': 100.0, 'ISCAL': 100.0, 'LAFB': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/08000/08616_hr
+15852,lafb,"{'ASMI': 100.0, 'LAFB': 100.0, 'AFIB': 0.0}",records500/15000/15852_hr
+21464,lafb,"{'ILMI': 15.0, 'ASMI': 15.0, 'CRBBB': 100.0, 'LAFB': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/21000/21464_hr
+11073,lafb,"{'ASMI': 100.0, 'LAFB': 100.0, 'PVC': 100.0, 'NST_': 0.0, 'SR': 0.0}",records500/11000/11073_hr
+12449,lafb,"{'ASMI': 100.0, 'LAFB': 100.0, 'SR': 0.0}",records500/12000/12449_hr
+3578,lafb,"{'ASMI': 100.0, 'CRBBB': 100.0, 'LAFB': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/03000/03578_hr
+12559,wpw_pattern,"{'WPW': 100.0, 'SR': 0.0}",records500/12000/12559_hr
+461,wpw_pattern,"{'WPW': 100.0, 'SR': 0.0}",records500/00000/00461_hr
+10822,wpw_pattern,"{'WPW': 50.0, 'SR': 0.0, 'SARRH': 0.0}",records500/10000/10822_hr
+13339,wpw_pattern,"{'WPW': 100.0, 'SR': 0.0}",records500/13000/13339_hr
+9823,wpw_pattern,"{'WPW': 100.0, 'SR': 0.0}",records500/09000/09823_hr
+11300,wpw_pattern,"{'WPW': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/11000/11300_hr
+7291,wpw_pattern,"{'WPW': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/07000/07291_hr
+20956,wpw_pattern,"{'WPW': 100.0, 'SARRH': 0.0}",records500/20000/20956_hr
+4825,wpw_pattern,"{'WPW': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/04000/04825_hr
+7407,wpw_pattern,"{'WPW': 50.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/07000/07407_hr
+14221,afib,{'AFIB': 100.0},records500/14000/14221_hr
+19667,afib,{'AFIB': 100.0},records500/19000/19667_hr
+14102,afib,"{'AFIB': 100.0, 'NST_': 0.0}",records500/14000/14102_hr
+19952,afib,{'AFIB': 100.0},records500/19000/19952_hr
+13742,afib,{'AFIB': 100.0},records500/13000/13742_hr
+18485,afib,{'AFIB': 100.0},records500/18000/18485_hr
+8215,afib,{'AFIB': 100.0},records500/08000/08215_hr
+12632,afib,"{'AFIB': 100.0, 'LVOLT': 0.0}",records500/12000/12632_hr
+4531,afib,{'AFIB': 100.0},records500/04000/04531_hr
+13832,afib,"{'AFIB': 100.0, 'STD_': 0.0}",records500/13000/13832_hr
+4656,lvh,"{'ASMI': 100.0, 'ANEUR': 50.0, 'LVH': 100.0, 'ISCAL': 100.0, 'LPR': 0.0, 'VCLVH': 0.0, 'STD_': 0.0, 'SR': 0.0}",records500/04000/04656_hr
+5821,lvh,"{'LVH': 100.0, 'ISC_': 100.0, 'LAO/LAE': 50.0, 'PAC': 0.0, 'VCLVH': 0.0, 'LOWT': 0.0, 'SR': 0.0}",records500/05000/05821_hr
+5769,lvh,"{'IMI': 100.0, 'LVH': 50.0, 'ISC_': 50.0, 'ABQRS': 0.0, 'SARRH': 0.0}",records500/05000/05769_hr
+6509,lvh,"{'ISC_': 100.0, 'LVH': 100.0, 'PAC': 0.0, 'LPR': 0.0, 'STD_': 0.0, 'SR': 0.0}",records500/06000/06509_hr
+14556,lvh,"{'ASMI': 35.0, 'LVH': 100.0, 'ISC_': 100.0, 'VCLVH': 0.0, 'STD_': 0.0, 'SR': 0.0}",records500/14000/14556_hr
+15825,lvh,"{'LVH': 100.0, 'INJAL': 100.0, 'AFIB': 0.0}",records500/15000/15825_hr
+15260,lvh,"{'LVH': 100.0, 'ISC_': 100.0, 'SR': 0.0}",records500/15000/15260_hr
+10328,lvh,"{'IMI': 15.0, 'LVH': 100.0, 'ISC_': 100.0, 'PVC': 100.0, 'LAO/LAE': 100.0, 'LPR': 0.0, 'STD_': 0.0, 'SR': 0.0}",records500/10000/10328_hr
+16473,lvh,"{'LVH': 50.0, 'VCLVH': 0.0, 'STD_': 0.0, 'SR': 0.0}",records500/16000/16473_hr
+14718,lvh,"{'LVH': 100.0, 'ISC_': 100.0, 'SR': 0.0}",records500/14000/14718_hr
+713,anterior_stemi,"{'ASMI': 100.0, 'LVH': 100.0, 'ISC_': 100.0, 'LAO/LAE': 100.0, 'PVC': 100.0, 'LPR': 0.0, 'STD_': 0.0, 'SR': 0.0}",records500/00000/00713_hr
+5847,anterior_stemi,"{'ASMI': 100.0, 'LMI': 50.0, 'INJAS': 100.0, 'IVCD': 100.0, '1AVB': 100.0, 'SR': 0.0}",records500/05000/05847_hr
+20391,anterior_stemi,"{'ALMI': 100.0, 'ASMI': 100.0, 'LPFB': 100.0, '1AVB': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/20000/20391_hr
+2740,anterior_stemi,"{'AMI': 100.0, 'LVH': 50.0, 'ISC_': 100.0, 'STD_': 0.0, 'SR': 0.0}",records500/02000/02740_hr
+8421,anterior_stemi,"{'ASMI': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/08000/08421_hr
+9445,anterior_stemi,"{'ILMI': 100.0, 'ASMI': 100.0, 'SR': 0.0}",records500/09000/09445_hr
+13153,anterior_stemi,"{'ASMI': 100.0, 'ILMI': 15.0, 'LAFB': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/13000/13153_hr
+11339,anterior_stemi,"{'IMI': 100.0, 'ASMI': 100.0, 'CRBBB': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/11000/11339_hr
+6339,anterior_stemi,"{'ALMI': 100.0, 'ASMI': 100.0, 'INVT': 0.0, 'SR': 0.0}",records500/06000/06339_hr
+13535,anterior_stemi,"{'ILMI': 100.0, 'ASMI': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/13000/13535_hr
+15970,inferior_stemi,"{'IMI': 100.0, 'LVH': 100.0, 'ISC_': 100.0, 'LPR': 0.0, 'QWAVE': 0.0, 'STD_': 0.0, 'SR': 0.0}",records500/15000/15970_hr
+15523,inferior_stemi,"{'IMI': 100.0, 'AMI': 15.0, 'LVH': 50.0, 'ISCAN': 100.0, 'ABQRS': 0.0, 'VCLVH': 0.0, 'STACH': 0.0}",records500/15000/15523_hr
+7481,inferior_stemi,"{'ILMI': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/07000/07481_hr
+16420,inferior_stemi,"{'ILMI': 100.0, 'PVC': 100.0, 'LAO/LAE': 50.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/16000/16420_hr
+13721,inferior_stemi,"{'ILMI': 50.0, 'ASMI': 100.0, 'QWAVE': 0.0, 'SR': 0.0}",records500/13000/13721_hr
+16423,inferior_stemi,"{'ILMI': 100.0, 'ASMI': 100.0, 'ANEUR': 50.0, 'ABQRS': 0.0, 'AFIB': 0.0}",records500/16000/16423_hr
+15836,inferior_stemi,"{'IMI': 100.0, 'NDT': 100.0, 'SR': 0.0}",records500/15000/15836_hr
+7155,inferior_stemi,"{'IMI': 50.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/07000/07155_hr
+19799,inferior_stemi,"{'IMI': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/19000/19799_hr
+17566,inferior_stemi,"{'IMI': 100.0, 'ASMI': 100.0, 'INJAL': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/17000/17566_hr
+20536,lateral_stemi,"{'ALMI': 50.0, '1AVB': 100.0, 'SR': 0.0}",records500/20000/20536_hr
+2846,lateral_stemi,"{'ALMI': 100.0, 'ASMI': 50.0}",records500/02000/02846_hr
+1371,lateral_stemi,"{'ASMI': 100.0, 'ALMI': 100.0, 'IVCD': 100.0, '1AVB': 100.0, 'SR': 0.0}",records500/01000/01371_hr
+21002,lateral_stemi,"{'ALMI': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/21000/21002_hr
+4615,lateral_stemi,"{'ALMI': 80.0, 'ASMI': 100.0, 'INVT': 0.0, 'STD_': 0.0, 'SR': 0.0}",records500/04000/04615_hr
+15517,lateral_stemi,"{'ASMI': 100.0, 'ALMI': 100.0, 'ABQRS': 0.0, 'SR': 0.0}",records500/15000/15517_hr
+5464,lateral_stemi,"{'ASMI': 100.0, 'ALMI': 50.0, 'SR': 0.0}",records500/05000/05464_hr
+8163,lateral_stemi,"{'ALMI': 100.0, '1AVB': 100.0, 'CLBBB': 100.0, 'SBRAD': 0.0}",records500/08000/08163_hr
+19457,lateral_stemi,"{'LMI': 100.0, 'LVH': 100.0, 'ISC_': 100.0, 'ABQRS': 0.0, 'AFIB': 0.0}",records500/19000/19457_hr
+8698,lateral_stemi,"{'ALMI': 100.0, 'ASMI': 100.0, 'LAFB': 100.0, '1AVB': 100.0, 'PVC': 100.0, 'ABQRS': 0.0, 'SVARR': 0.0}",records500/08000/08698_hr
+8210,long_qt,"{'3AVB': 100.0, 'LNGQT': 100.0}",records500/08000/08210_hr
+840,long_qt,"{'NST_': 100.0, 'LNGQT': 100.0, 'EL': 50.0, 'SR': 0.0}",records500/00000/00840_hr
+9858,long_qt,"{'LAFB': 100.0, 'LNGQT': 100.0, 'ABQRS': 0.0, 'SARRH': 0.0}",records500/09000/09858_hr
+8032,long_qt,"{'IMI': 15.0, 'LNGQT': 100.0, 'SR': 0.0}",records500/08000/08032_hr
+4132,long_qt,"{'LNGQT': 100.0, 'EL': 50.0, 'SR': 0.0}",records500/04000/04132_hr
+15617,long_qt,"{'LNGQT': 100.0, 'STACH': 0.0}",records500/15000/15617_hr
+12868,long_qt,"{'LNGQT': 100.0, '1AVB': 100.0, 'SR': 0.0}",records500/12000/12868_hr
+17298,long_qt,"{'LVH': 50.0, 'LNGQT': 100.0, 'SBRAD': 0.0}",records500/17000/17298_hr
+7523,long_qt,"{'LNGQT': 100.0, 'SR': 0.0}",records500/07000/07523_hr
+5046,long_qt,"{'LAFB': 100.0, 'LNGQT': 100.0, 'SR': 0.0}",records500/05000/05046_hr
