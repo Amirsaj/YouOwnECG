@@ -41,25 +41,36 @@ def _is_valid(*indices: int, n: int) -> bool:
     return all(0 < idx < n for idx in indices)
 
 
-def _find_peaks_derivative(segment: np.ndarray, min_amp_frac: float = 0.05):
+def _find_peaks_derivative(segment: np.ndarray, min_amp_frac: float = 0.10):
     """
     Find peaks in *segment* via derivative zero-crossings with amplitude gate.
 
     Returns list of (index_in_segment, amplitude_relative_to_baseline) sorted
     by position.  Positive amplitude = local max, negative = local min.
+
+    The amplitude gate requires each peak to exceed min_amp_frac of peak-to-peak
+    range AND an absolute minimum of 30 µV. This prevents noise from creating
+    false peaks that inflate the fragmented QRS count.
     """
     if len(segment) < 3:
         return []
 
-    baseline = segment[0]
-    centered = segment - baseline
+    # Apply light smoothing to remove high-freq noise before peak detection
+    if len(segment) > 7:
+        kernel = np.ones(5) / 5
+        smoothed = np.convolve(segment, kernel, mode='same')
+    else:
+        smoothed = segment
+
+    baseline = smoothed[0]
+    centered = smoothed - baseline
 
     d1 = np.diff(centered)
     sign_d1 = np.sign(d1)
     sign_changes = np.diff(sign_d1)
 
     ptp = np.ptp(centered)
-    gate = ptp * min_amp_frac if ptp > 0 else 0
+    gate = max(ptp * min_amp_frac, 30.0)  # at least 30 µV
 
     peaks = []
     for i in np.nonzero(sign_changes != 0)[0]:
@@ -181,7 +192,7 @@ def classify_qrs_pattern(
         # (not just a q-wave dip which also has low initial slope)
         # Also require meaningful amplitude (peak-to-peak > 0.3mV = 300µV)
         ptp = float(np.ptp(centered))
-        if slope_ratio < 0.15 and qrs_duration_ms > 110 and ptp > 300:
+        if slope_ratio < 0.10 and qrs_duration_ms > 110 and ptp > 300:
             # Additional check: initial segment should be monotonically increasing/decreasing
             # (delta wave is smooth, not a q-wave dip-then-rise)
             if len(initial_seg) >= 3:
@@ -190,8 +201,8 @@ def classify_qrs_pattern(
                 if monotonic:
                     result["delta_wave"] = True
 
-    # -- fragmented QRS (stricter: > 6 peaks, not 4) --
-    if len(peaks) > 6:
+    # -- fragmented QRS: > 8 amplitude-gated peaks --
+    if len(peaks) > 8:
         result["fragmented"] = True
 
     # -- pattern naming --

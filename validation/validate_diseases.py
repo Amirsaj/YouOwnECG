@@ -38,7 +38,7 @@ DETECTION_FIELDS = [
 # ST elevation thresholds for signal-only STEMI detection (mV)
 # Mirrors features.py thresholds
 _STEMI_THRESH = 0.1   # 1 mm for most leads
-_STEMI_ANTERIOR_THRESH = 0.15   # 1.5 mm V2-V3 (female-safe conservative threshold)
+_STEMI_ANTERIOR_THRESH = 0.15   # 1.5 mm V2-V3
 
 
 def _predict_findings(feats) -> dict[str, tuple[bool, str]]:
@@ -77,9 +77,11 @@ def _predict_findings(feats) -> dict[str, tuple[bool, str]]:
 
     # --- STEMI (signal-only, territory-based) ---
     st_elev = feats.st_elevation_mv or {}
-    lbbb_active = feats.lbbb
+    # Suppress STEMI in BBB or wide QRS (secondary ST changes expected)
+    bbb_active = feats.lbbb or feats.rbbb
+    wide_qrs = (feats.qrs_duration_global_ms or 0) >= 140  # very wide = IVCD
 
-    if not lbbb_active:
+    if not bbb_active and not wide_qrs:
         anterior_leads = ["V1", "V2", "V3", "V4"]
         ant_pos = [l for l in anterior_leads if (st_elev.get(l) or 0) >= _STEMI_ANTERIOR_THRESH]
         if len(ant_pos) >= 2:
@@ -98,11 +100,16 @@ def _predict_findings(feats) -> dict[str, tuple[bool, str]]:
             preds["lateral_stemi"] = (True, "HIGH" if len(lat_pos) >= 3 else "MEDIUM")
 
     # --- Long QT ---
-    qtc = feats.qtc_bazett_ms
-    if qtc is not None and qtc >= 500:
-        preds["long_qt"] = (True, "HIGH")
-    elif qtc is not None and qtc >= 460:
-        preds["long_qt"] = (True, "MEDIUM")
+    # Require both Bazett AND Fridericia to agree (reduces rate-dependent FP)
+    qtc_b = feats.qtc_bazett_ms
+    qtc_f = feats.qtc_fridericia_ms
+    # Also skip if LBBB/RBBB (wide QRS inflates QT)
+    qrs_wide = (feats.qrs_duration_global_ms or 0) > 140
+    if not qrs_wide and qtc_b is not None:
+        if qtc_b >= 500 and (qtc_f is None or qtc_f >= 480):
+            preds["long_qt"] = (True, "HIGH")
+        elif qtc_b >= 480 and (qtc_f is None or qtc_f >= 460):
+            preds["long_qt"] = (True, "MEDIUM")
 
     # --- Pericarditis ---
     if feats.pericarditis_pattern:

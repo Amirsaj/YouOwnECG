@@ -36,6 +36,12 @@ def generate_signal_findings(features: FeatureObject) -> list[DiagnosticFinding]
     if "wpw_pattern" in finding_types:
         findings = [f for f in findings if f.finding_type != "lvh"]
 
+    # WPW delta waves produce pseudo-ST elevation in precordial leads that mimics
+    # anterior STEMI — suppress STEMI findings when WPW is confirmed.
+    # Exception: lateral_stemi is kept because accessory pathway location matters clinically.
+    if "wpw_pattern" in finding_types:
+        findings = [f for f in findings if f.finding_type not in ("anterior_stemi", "sgarbossa_stemi")]
+
     # LBBB inflates QTc — already handled in detector, but safety check
     # (no additional suppression needed here)
 
@@ -99,26 +105,41 @@ def _fmt(v: Optional[float], precision: int = 0) -> str:
 # ---------------------------------------------------------------------------
 
 def _detect_lbbb(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    if not f.lbbb:
-        return None
     qrs = f.qrs_duration_global_ms or 0
+    v1_pat = f.qrs_pattern.get("V1", "unknown")
+    v5_pat = f.qrs_pattern.get("V5", "unknown")
+    v6_pat = f.qrs_pattern.get("V6", "unknown")
+    # Primary: feature-level flag (already incorporates morphology cross-checks)
+    # Fallback: V1=QS + V5/V6=monophasic_R + QRS>=120ms (strict LBBB criteria)
+    morph_lbbb = (v1_pat == "QS" and qrs >= 120
+                  and (v5_pat == "monophasic_R" or v6_pat == "monophasic_R"))
+    if not f.lbbb and not morph_lbbb:
+        return None
+    v1_desc = f"V1={v1_pat}" if v1_pat != "unknown" else "V1 net negative"
     return _make(
         "lbbb", "HIGH",
         f"Left bundle branch block detected (QRS {_fmt(f.qrs_duration_global_ms)} ms).",
-        f"QRS {_fmt(f.qrs_duration_global_ms)} ms. QS/rS pattern in V1, "
-        f"broad notched R in V5/V6. ST-T discordance expected.",
-        {"qrs_duration_global_ms": f.qrs_duration_global_ms, "lbbb": True},
+        f"QRS {_fmt(f.qrs_duration_global_ms)} ms. {v1_desc}, "
+        f"V5={v5_pat}, V6={v6_pat}. ST-T discordance expected.",
+        {"qrs_duration_global_ms": f.qrs_duration_global_ms, "lbbb": True,
+         "v1_pattern": v1_pat, "v5_pattern": v5_pat},
     )
 
 
 def _detect_rbbb(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    if not f.rbbb:
+    qrs = f.qrs_duration_global_ms or 0
+    v1_pat = f.qrs_pattern.get("V1", "unknown")
+    # Primary: feature-level flag; Fallback: RSR' pattern in V1 with wide QRS
+    morph_rbbb = v1_pat == "RSR'" and qrs >= 110
+    if not f.rbbb and not morph_rbbb:
         return None
+    v1_desc = f"V1={v1_pat}" if v1_pat != "unknown" else "RSR' in V1"
     return _make(
         "rbbb", "HIGH",
         f"Right bundle branch block detected (QRS {_fmt(f.qrs_duration_global_ms)} ms).",
-        f"QRS {_fmt(f.qrs_duration_global_ms)} ms. RSR' in V1/V2, wide S in I and V6.",
-        {"qrs_duration_global_ms": f.qrs_duration_global_ms, "rbbb": True},
+        f"QRS {_fmt(f.qrs_duration_global_ms)} ms. {v1_desc}, wide S in I and V6.",
+        {"qrs_duration_global_ms": f.qrs_duration_global_ms, "rbbb": True,
+         "v1_pattern": v1_pat},
     )
 
 
@@ -183,13 +204,26 @@ def _detect_anterior_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
     max_st = max(f.st_elevation_mv.get(l) or 0 for l in elev_leads)
     _, dep_leads = _st_leads(f)
     inf_dep = [l for l in dep_leads if l in ("II", "III", "aVF")]
-    conf = "HIGH" if len(elev_leads) >= 3 and max_st > 0.2 else "MODERATE"
+    # ST curvature: convex = true STEMI (higher confidence), concave = may be benign
+    convex_leads = [l for l in elev_leads if f.st_curvature.get(l) == "convex"]
+    concave_leads = [l for l in elev_leads if f.st_curvature.get(l) == "concave"]
+    if len(elev_leads) >= 3 and max_st > 0.2:
+        conf = "HIGH"
+    elif convex_leads:
+        conf = "HIGH"
+    elif concave_leads and not convex_leads:
+        conf = "LOW"  # concave ST = likely benign (early repol / pericarditis)
+    else:
+        conf = "MODERATE"
+    curvature_str = ", ".join(f"{l}={f.st_curvature.get(l, '?')}" for l in elev_leads)
     return _make(
         "anterior_stemi", conf,
         f"Anterior ST elevation in {', '.join(elev_leads)}.",
         f"ST elevation in {', '.join(elev_leads)} (max {max_st:.2f} mV). "
+        f"ST curvature: {curvature_str}. "
         f"Anterior territory (LAD). Reciprocal depression: {', '.join(inf_dep) or 'none'}.",
-        {"st_elevation_mv": {l: f.st_elevation_mv.get(l) for l in elev_leads}},
+        {"st_elevation_mv": {l: f.st_elevation_mv.get(l) for l in elev_leads},
+         "st_curvature": {l: f.st_curvature.get(l) for l in elev_leads}},
     )
 
 
@@ -198,18 +232,50 @@ def _detect_inferior_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
         return None
     inferior = ["II", "III", "aVF"]
     elev_leads = [l for l in inferior if (f.st_elevation_mv.get(l) or 0) > 0.1]
-    if len(elev_leads) < 2:
-        return None
-    max_st = max(f.st_elevation_mv.get(l) or 0 for l in elev_leads)
     lat_dep = [l for l in ("I", "aVL") if (f.st_depression_mv.get(l) or 0) > 0.05]
-    conf = "HIGH" if len(elev_leads) >= 2 and max_st > 0.15 else "MODERATE"
-    return _make(
-        "inferior_stemi", conf,
-        f"Inferior ST elevation in {', '.join(elev_leads)}.",
-        f"ST elevation in {', '.join(elev_leads)} (max {max_st:.2f} mV). "
-        f"Inferior territory (RCA/LCx). Reciprocal: {', '.join(lat_dep) or 'none'}.",
-        {"st_elevation_mv": {l: f.st_elevation_mv.get(l) for l in elev_leads}},
-    )
+
+    # Amplitude-based path
+    if len(elev_leads) >= 2:
+        max_st = max(f.st_elevation_mv.get(l) or 0 for l in elev_leads)
+        convex_leads = [l for l in elev_leads if f.st_curvature.get(l) == "convex"]
+        if len(elev_leads) >= 2 and max_st > 0.15:
+            conf = "HIGH"
+        elif convex_leads:
+            conf = "HIGH"
+        else:
+            conf = "MODERATE"
+        curvature_str = ", ".join(f"{l}={f.st_curvature.get(l, '?')}" for l in elev_leads)
+        return _make(
+            "inferior_stemi", conf,
+            f"Inferior ST elevation in {', '.join(elev_leads)}.",
+            f"ST elevation in {', '.join(elev_leads)} (max {max_st:.2f} mV). "
+            f"ST curvature: {curvature_str}. "
+            f"Inferior territory (RCA/LCx). Reciprocal: {', '.join(lat_dep) or 'none'}.",
+            {"st_elevation_mv": {l: f.st_elevation_mv.get(l) for l in elev_leads},
+             "st_curvature": {l: f.st_curvature.get(l) for l in elev_leads}},
+        )
+
+    # Shape-based path: convex ST curvature + QS pattern in inferior leads
+    # Detects acute/recent STEMI when absolute ST amplitude is small (wander, early, RCA occlusion)
+    convex_inf = [l for l in inferior if f.st_curvature.get(l) == "convex"]
+    qs_inf = [l for l in inferior if f.qrs_pattern.get(l) == "QS"]
+    if len(convex_inf) >= 1 and len(qs_inf) >= 1:
+        all_shape_leads = sorted(set(convex_inf + qs_inf))
+        max_st_any = max((f.st_elevation_mv.get(l) or 0) for l in inferior)
+        # Require reciprocal depression in I/aVL for HIGH confidence
+        conf = "HIGH" if lat_dep else "MODERATE"
+        return _make(
+            "inferior_stemi", conf,
+            f"Inferior STEMI pattern — shape evidence in {', '.join(all_shape_leads)}.",
+            f"Convex ST curvature in {', '.join(convex_inf)} + QS pattern in {', '.join(qs_inf)}. "
+            f"ST amplitude {max_st_any:.2f} mV (may be underestimated due to wander). "
+            f"Reciprocal: {', '.join(lat_dep) or 'none'}. "
+            f"Shape evidence indicates inferior STEMI (RCA territory) — correlate clinically.",
+            {"st_curvature_convex": convex_inf, "qs_pattern": qs_inf,
+             "st_elevation_mv": {l: f.st_elevation_mv.get(l) for l in inferior}},
+        )
+
+    return None
 
 
 def _detect_lateral_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
@@ -233,20 +299,45 @@ def _detect_lateral_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
 
 
 def _detect_wellens(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    # Deep symmetric T inversion in V2-V3 without significant ST elevation
-    inv_leads = [l for l in ("V2", "V3", "V4")
-                 if f.t_morphology.get(l) == "inverted" and f.symmetric_t_inversion.get(l, False)]
-    if len(inv_leads) < 2:
+    # Type B (more common): deep symmetric T inversion in V2-V3
+    # Type A: biphasic T (initial up, terminal down) in V2-V3
+    type_b_leads = []
+    type_a_leads = []
+    for l in ("V2", "V3", "V4"):
+        t_morph = f.t_morphology.get(l, "")
+        sym_idx = f.t_symmetry_index.get(l)
+        det_morph = f.t_detailed_morphology.get(l, "")
+        # Type B: deep symmetric inversion (symmetry > 0.6 OR legacy symmetric flag)
+        if t_morph == "inverted":
+            is_symmetric = (sym_idx is not None and sym_idx > 0.6) or f.symmetric_t_inversion.get(l, False)
+            if is_symmetric:
+                type_b_leads.append(l)
+        # Type A: biphasic T-wave (positive-then-negative)
+        if det_morph in ("biphasic_pos_neg", "biphasic"):
+            type_a_leads.append(l)
+
+    wellens_type = None
+    leads_involved = []
+    if len(type_b_leads) >= 2:
+        wellens_type = "B"
+        leads_involved = type_b_leads
+    elif len(type_a_leads) >= 1:
+        wellens_type = "A"
+        leads_involved = type_a_leads
+
+    if wellens_type is None:
         return None
     # Must NOT have significant ST elevation
-    if any((f.st_elevation_mv.get(l) or 0) > 0.1 for l in inv_leads):
+    if any((f.st_elevation_mv.get(l) or 0) > 0.1 for l in leads_involved):
         return None
+    sym_vals = {l: f.t_symmetry_index.get(l) for l in leads_involved}
     return _make(
         "wellens", "MODERATE",
-        f"Wellens pattern — deep T inversion in {', '.join(inv_leads)}.",
-        f"Deep symmetric T-wave inversion in {', '.join(inv_leads)} without ST elevation. "
-        f"Pattern suggests critical LAD stenosis.",
-        {"t_morphology": {l: "inverted" for l in inv_leads}, "symmetric_t_inversion": {l: True for l in inv_leads}},
+        f"Wellens Type {wellens_type} — {'deep symmetric T inversion' if wellens_type == 'B' else 'biphasic T'} in {', '.join(leads_involved)}.",
+        f"Wellens Type {wellens_type} in {', '.join(leads_involved)}. "
+        f"{'Symmetry indices: ' + ', '.join(f'{l}={v:.2f}' for l, v in sym_vals.items() if v is not None) + '. ' if any(v is not None for v in sym_vals.values()) else ''}"
+        f"Critical LAD stenosis pattern.",
+        {"wellens_type": wellens_type, "leads": leads_involved, "t_symmetry": sym_vals},
     )
 
 
@@ -263,27 +354,46 @@ def _detect_de_winter(f: FeatureObject) -> Optional[DiagnosticFinding]:
 
 
 def _detect_brugada(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    if not f.brugada_type1_pattern:
+    # Feature-level flag OR coved ST curvature in V1/V2 with ST elevation
+    coved_leads = [l for l in ("V1", "V2")
+                   if f.st_curvature.get(l) == "coved"
+                   and (f.st_elevation_mv.get(l) or 0) >= 0.2]
+    if not f.brugada_type1_pattern and not coved_leads:
         return None
+    curvature_detail = ", ".join(f"{l}={f.st_curvature.get(l, '?')}" for l in ("V1", "V2"))
     return _make(
         "brugada_type1", "MODERATE",
         "Brugada Type 1 pattern in V1-V2.",
-        "Coved ST elevation with T-wave inversion in V1-V2. "
-        "Risk of sudden cardiac death — EP consultation needed.",
-        {"brugada_type1_pattern": True},
+        f"Coved ST elevation with T-wave inversion in V1-V2. "
+        f"ST curvature: {curvature_detail}. "
+        f"Risk of sudden cardiac death — EP consultation needed.",
+        {"brugada_type1_pattern": True, "st_curvature_v1": f.st_curvature.get("V1"),
+         "st_curvature_v2": f.st_curvature.get("V2")},
     )
 
 
 def _detect_pericarditis(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    if not f.pericarditis_pattern:
+    # Feature-level flag OR morphology: concave ST in >=4 leads + PR depression
+    concave_leads = [l for l in f.st_curvature
+                     if f.st_curvature[l] == "concave"
+                     and (f.st_elevation_mv.get(l) or 0) > 0.05]
+    pr_dep_leads = [l for l in f.pr_depression_mv
+                    if (f.pr_depression_mv[l] or 0) > 0.05]
+    morph_pericarditis = len(concave_leads) >= 4
+    if not f.pericarditis_pattern and not morph_pericarditis:
         return None
     elev, _ = _st_leads(f, 0.05)
+    detail = f"Diffuse concave ST elevation in {', '.join(elev[:6]) or ', '.join(concave_leads[:6])}."
+    if pr_dep_leads:
+        detail += f" PR depression in {', '.join(pr_dep_leads[:4])}."
+    detail += " Pattern consistent with pericarditis."
+    conf = "HIGH" if morph_pericarditis and pr_dep_leads else "MODERATE"
     return _make(
-        "pericarditis", "MODERATE",
-        f"Diffuse ST elevation — pericarditis pattern.",
-        f"Diffuse concave ST elevation in {', '.join(elev[:6])}. "
-        f"Pattern consistent with pericarditis.",
-        {"pericarditis_pattern": True},
+        "pericarditis", conf,
+        "Diffuse ST elevation — pericarditis pattern.",
+        detail,
+        {"pericarditis_pattern": True, "concave_st_leads": concave_leads[:6],
+         "pr_depression_leads": pr_dep_leads[:4]},
     )
 
 
@@ -420,7 +530,17 @@ def _detect_rae(f: FeatureObject) -> Optional[DiagnosticFinding]:
 
 
 def _detect_second_degree_avb(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    """Approximate 2nd degree AVB: dropped beats (long pause) with P waves present."""
+    """2nd degree AVB: Wenckebach (progressive PR) or dropped beats."""
+    # Primary: morphology-based Wenckebach detection
+    if f.av_relationship == "wenckebach":
+        return _make(
+            "second_degree_avb", "MODERATE",
+            "Second-degree AV block (Mobitz Type I / Wenckebach).",
+            f"Progressive PR prolongation with dropped QRS detected. "
+            f"AV relationship: Wenckebach pattern.",
+            {"av_relationship": "wenckebach"},
+        )
+    # Fallback: dropped beat heuristic
     bs = f.beat_summary
     if bs.dropped_beat_context is None:
         return None
@@ -438,7 +558,22 @@ def _detect_second_degree_avb(f: FeatureObject) -> Optional[DiagnosticFinding]:
 
 
 def _detect_complete_avb(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    """Complete AVB: P waves present but AV dissociation (atrial rate >> ventricular rate)."""
+    """Complete AVB: P waves present but AV dissociation (atrial rate >> ventricular rate).
+    Uses av_relationship from morphology engine as primary signal."""
+    # Primary: morphology-based AV relationship
+    if f.av_relationship == "dissociated":
+        hr_a = f.heart_rate_atrial_bpm
+        hr_v = f.heart_rate_ventricular_bpm
+        return _make(
+            "complete_avb", "HIGH",
+            f"Complete AV block — ventricular rate {_fmt(hr_v)} bpm.",
+            f"AV dissociation detected. Atrial rate {_fmt(hr_a)} bpm, "
+            f"ventricular rate {_fmt(hr_v)} bpm. P-waves march independently of QRS. "
+            f"Complete heart block. STAT — pacing may be needed.",
+            {"heart_rate_atrial_bpm": hr_a, "heart_rate_ventricular_bpm": hr_v,
+             "av_relationship": "dissociated"},
+        )
+    # Fallback: rate-based heuristic
     if not f.p_wave_present:
         return None
     hr_a = f.heart_rate_atrial_bpm
@@ -484,31 +619,59 @@ def _detect_posterior_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
 
 
 def _detect_sgarbossa_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    """Modified Sgarbossa criteria for STEMI in setting of LBBB."""
-    if not f.lbbb:
+    """Modified Sgarbossa criteria for STEMI in setting of LBBB.
+    Uses concordance_analysis from morphology engine for primary detection."""
+    # Must have confirmed LBBB: feature flag + wide QRS (≥120ms)
+    # QRS pattern fallback alone is too permissive (LVH/other conditions can give QS in V1).
+    # WPW is already screened out at the generate_signal_findings level (f.lbbb suppressed).
+    qrs = f.qrs_duration_global_ms or 0
+    if not f.lbbb or qrs < 120:
         return None
     score = 0
     details = []
-    for lead in ["V1", "V2", "V3", "V4", "V5", "V6", "I", "II", "III", "aVL", "aVF"]:
+    all_leads = ["V1", "V2", "V3", "V4", "V5", "V6", "I", "II", "III", "aVL", "aVF"]
+
+    # Criterion 1: Concordant ST elevation >= 1mm in any lead (5 pts)
+    for lead in all_leads:
         elev = f.st_elevation_mv.get(lead) or 0
-        if elev >= 0.1:
-            r = f.r_amplitude_mv.get(lead) or 0
-            s = f.s_amplitude_mv.get(lead) or 0
-            qrs_positive = r > s
-            if qrs_positive and elev >= 0.1:
-                score += 5
-                details.append(f"Concordant ST elevation in {lead} ({elev:.2f} mV)")
-                break
+        conc = f.concordance_analysis.get(lead, "unknown")
+        if elev >= 0.1 and conc == "concordant":
+            score += 5
+            details.append(f"Concordant ST elevation {lead} ({elev:.2f} mV)")
+            break
+
+    # Criterion 2: Concordant ST depression >= 1mm in V1-V3 (3 pts)
     for lead in ["V1", "V2", "V3"]:
         dep = f.st_depression_mv.get(lead) or 0
-        if dep >= 0.1:
+        conc = f.concordance_analysis.get(lead, "unknown")
+        if dep >= 0.1 and conc == "concordant":
+            score += 3
+            details.append(f"Concordant ST depression {lead} ({dep:.2f} mV)")
+            break
+
+    # Criterion 3 (Smith-modified): Excessive discordant ST elevation — ST/S ratio > 0.25
+    # In LBBB, discordant ST elevation is expected (ST opposite QRS). Criterion 3 detects
+    # when the discordant elevation is disproportionately large relative to the S-wave depth.
+    # For QS-pattern leads: use q_amplitude as the reference (no R, so S = depth of QRS trough)
+    if score < 3:
+        for lead in all_leads:
+            elev = f.st_elevation_mv.get(lead) or 0
+            if elev < 0.05:
+                continue
+            pat = f.qrs_pattern.get(lead, "")
             r = f.r_amplitude_mv.get(lead) or 0
             s = f.s_amplitude_mv.get(lead) or 0
-            qrs_negative = s > r
-            if qrs_negative and dep >= 0.1:
+            q = f.q_amplitude_mv.get(lead) or 0
+            # Net discordant deflection: for QS leads use q; for rS/RS use s
+            net_deflection = q if pat in ("QS", "rS") else s
+            if net_deflection < 0.01:
+                continue
+            ratio = elev / net_deflection
+            if ratio >= 0.25:
                 score += 3
-                details.append(f"Concordant ST depression in {lead} ({dep:.2f} mV)")
+                details.append(f"Excessive discordant ST elevation {lead} (ST={elev:.2f}mV, ratio={ratio:.2f})")
                 break
+
     if score < 3:
         return None
     conf = "HIGH" if score >= 5 else "MODERATE"
@@ -516,7 +679,98 @@ def _detect_sgarbossa_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
         "sgarbossa_stemi", conf,
         f"STEMI in LBBB (Sgarbossa score {score}).",
         f"Modified Sgarbossa criteria met (score {score}/8). " + ". ".join(details) + ".",
-        {"sgarbossa_score": score, "lbbb": True},
+        {"sgarbossa_score": score, "lbbb": True, "concordance_used": True},
+    )
+
+
+def _detect_inferior_mi_established(f: FeatureObject) -> Optional[DiagnosticFinding]:
+    """
+    Detect established (subacute/old) inferior MI from Q-wave and R-wave amplitude pattern.
+
+    Triggers on QS morphology or R < Q in ≥2 contiguous inferior leads, WITHOUT
+    requiring ST elevation. Left axis deviation provides supporting evidence (loss
+    of inferior depolarization forces pulls the axis leftward).
+
+    Catches cases _detect_inferior_stemi misses when ST has already normalized.
+    Does NOT fire if active ST elevation is present in inferior leads (let _detect_inferior_stemi
+    handle that case). Does NOT fire with LBBB/RBBB (secondary QS patterns expected).
+    """
+    if f.lbbb or f.rbbb:
+        return None
+
+    # Skip if active ST elevation OR shape-based STEMI evidence present — acute detector takes priority
+    inferior = ["II", "III", "aVF"]
+    if any((f.st_elevation_mv.get(l) or 0) > 0.1 for l in inferior):
+        return None
+    # Skip if shape-based inferior STEMI fired (convex curvature + QS = acute, not established)
+    convex_inf = [l for l in inferior if f.st_curvature.get(l) == "convex"]
+    qs_inf = [l for l in inferior if f.qrs_pattern.get(l) == "QS"]
+    if len(convex_inf) >= 1 and len(qs_inf) >= 1:
+        return None
+
+    qs_leads = []
+    path_q_leads = []
+    for lead in inferior:
+        pat = f.qrs_pattern.get(lead, "") if f.qrs_pattern else ""
+        r = f.r_amplitude_mv.get(lead) or 0
+        q = f.q_amplitude_mv.get(lead) or 0
+        path_q = f.pathological_q_wave.get(lead, False) if f.pathological_q_wave else False
+
+        # QS pattern: explicit tag OR R so small it's essentially absent relative to Q
+        is_qs = pat == "QS" or (r < 0.15 and q > r)
+        if is_qs:
+            qs_leads.append(lead)
+        if path_q:
+            path_q_leads.append(lead)
+
+    # Primary: ≥2 inferior leads with QS/near-QS pattern
+    # Fallback: ≥2 inferior leads with pathological Q waves — but ONLY with supporting
+    # evidence (axis < -30° or small absolute R) to avoid false positives in normal ECGs
+    # where Q/R ratio is borderline but R amplitude is still tall.
+    axis = f.qrs_axis_deg
+    lad = axis is not None and axis < -30
+
+    if len(qs_leads) >= 2:
+        matching_leads = qs_leads
+        pattern_desc = "QS/near-QS pattern"
+    elif len(path_q_leads) >= 2:
+        # Require corroborating evidence for the fallback path
+        small_r = all((f.r_amplitude_mv.get(l) or 1.0) < 0.3 for l in path_q_leads)
+        if not lad and not small_r:
+            return None
+        matching_leads = path_q_leads
+        pattern_desc = "pathological Q waves"
+    else:
+        return None
+
+    r_vals = {l: f.r_amplitude_mv.get(l) for l in matching_leads if f.r_amplitude_mv.get(l) is not None}
+    q_vals = {l: f.q_amplitude_mv.get(l) for l in matching_leads if f.q_amplitude_mv.get(l) is not None}
+
+    if len(matching_leads) >= 3 and lad:
+        conf = "HIGH"
+    elif len(matching_leads) >= 2 and (lad or len(path_q_leads) >= 2):
+        conf = "MODERATE"
+    else:
+        conf = "LOW"
+
+    r_str = " | ".join(f"{l}:R={v:.2f}mV" for l, v in r_vals.items())
+    q_str = " | ".join(f"{l}:Q={v:.2f}mV" for l, v in q_vals.items()) if q_vals else ""
+    axis_str = f" Axis {axis:.0f}° (left axis deviation — supports loss of inferior forces)." if lad else (f" Axis {axis:.0f}°." if axis is not None else "")
+
+    return _make(
+        "inferior_mi_established",
+        conf,
+        f"Established inferior MI pattern — {pattern_desc} in {', '.join(matching_leads)}.",
+        f"{pattern_desc.capitalize()} in {', '.join(matching_leads)}. "
+        f"{r_str}. {q_str}.{axis_str} "
+        f"Consistent with completed/subacute inferior MI — ST elevation may have normalized. "
+        f"Correlate with symptoms and serial ECG for acuity.",
+        {
+            "qs_leads": qs_leads,
+            "pathological_q_leads": path_q_leads,
+            "r_amplitude_mv": {l: f.r_amplitude_mv.get(l) for l in matching_leads},
+            "qrs_axis_deg": axis,
+        },
     )
 
 
@@ -550,6 +804,7 @@ _DETECTORS = [
     # STAT conditions first
     _detect_anterior_stemi,
     _detect_inferior_stemi,
+    _detect_inferior_mi_established,
     _detect_lateral_stemi,
     _detect_wellens,
     _detect_de_winter,

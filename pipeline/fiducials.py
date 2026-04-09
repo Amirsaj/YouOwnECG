@@ -231,8 +231,33 @@ def refine_fiducials(
         for beat_idx in range(len(fpt)):
             beat = fpt[beat_idx]
 
-            # P-wave onset/offset: NOT refined (low-amplitude waves are too noisy
-            # for derivative-based refinement — tested and confirmed worse on 3 patients)
+            # P-wave recovery: if P-peak not detected, try to find it
+            p_peak = int(beat[COL_PPEAK])
+            if p_peak < 0 and beat_idx > 0:
+                # Search for P-wave between previous T-offset and current QRS-onset
+                prev_beat = fpt[beat_idx - 1]
+                prev_toff = int(prev_beat[COL_TOFF])
+                cur_qrson = int(beat[COL_QRSON])
+                if prev_toff < 0:
+                    # Estimate: previous R + 60% of RR
+                    prev_r = int(prev_beat[COL_R])
+                    if prev_r >= 0 and r_idx >= 0:
+                        prev_toff = prev_r + int(0.6 * (r_idx - prev_r))
+                found = _recover_p_wave(sig, prev_toff, cur_qrson, fs)
+                if found:
+                    fpt[beat_idx, COL_PON] = found[0]
+                    fpt[beat_idx, COL_PPEAK] = found[1]
+                    fpt[beat_idx, COL_POFF] = found[2]
+            elif p_peak < 0 and beat_idx == 0:
+                # First beat: search 200ms before QRS onset
+                cur_qrson = int(beat[COL_QRSON])
+                if cur_qrson > 0:
+                    search_start = max(0, cur_qrson - int(0.3 * fs))
+                    found = _recover_p_wave(sig, search_start, cur_qrson, fs)
+                    if found:
+                        fpt[beat_idx, COL_PON] = found[0]
+                        fpt[beat_idx, COL_PPEAK] = found[1]
+                        fpt[beat_idx, COL_POFF] = found[2]
 
             # Refine QRS onset (col 3)
             qrs_on = int(beat[COL_QRSON])
@@ -268,10 +293,134 @@ def refine_fiducials(
 
         refined[lead] = fpt
 
-    # Multi-lead consensus for R-peak (most reliable anchor)
-    refined = _apply_multilead_consensus(refined, lead_names, COL_R, max_shift_samples)
+    # Multi-lead consensus — correct outliers using cross-lead median
+    # Tolerance varies by fiducial type: R-peak is tight (conduction delay ~10ms),
+    # P and T are looser (morphology varies more across leads)
+    consensus_cols = [
+        (COL_R,      int(10 / 1000 * fs)),   # R-peak: ±10ms (tight)
+        (COL_QRSON,  int(15 / 1000 * fs)),   # QRS onset: ±15ms
+        (COL_QRSOFF, int(15 / 1000 * fs)),   # QRS offset: ±15ms
+        (COL_PPEAK,  int(25 / 1000 * fs)),   # P-peak: ±25ms (more variable)
+        (COL_TPEAK,  int(20 / 1000 * fs)),   # T-peak: ±20ms
+        (COL_Q,      int(12 / 1000 * fs)),   # Q: ±12ms
+        (COL_S,      int(12 / 1000 * fs)),   # S: ±12ms
+    ]
+    for col, tolerance in consensus_cols:
+        refined = _apply_multilead_consensus(refined, lead_names, col, tolerance)
 
     return refined
+
+
+def _recover_p_wave(
+    sig: np.ndarray, search_start: int, qrs_onset: int, fs: float
+) -> tuple[int, int, int] | None:
+    """
+    Try to recover a P-wave between search_start and qrs_onset.
+
+    Uses bandpass filtering (1-15 Hz) + peak detection on the filtered segment.
+    Returns (p_onset, p_peak, p_offset) or None if no credible P-wave found.
+    """
+    from scipy.signal import butter, filtfilt, find_peaks
+
+    if search_start < 0 or qrs_onset <= search_start:
+        return None
+
+    # Leave a 40ms gap before QRS (PR segment)
+    pr_gap = int(0.04 * fs)
+    search_end = max(search_start + 1, qrs_onset - pr_gap)
+    if search_end - search_start < int(0.04 * fs):
+        return None  # too short to contain a P-wave
+
+    seg = sig[search_start:search_end].astype(float)
+    n = len(seg)
+    if n < 20:
+        return None
+
+    # Bandpass 1-15 Hz to isolate P-wave frequency content
+    try:
+        b, a = butter(2, [1.0, 15.0], btype='bandpass', fs=fs)
+        if n > 3 * max(len(a), len(b)):
+            filtered = filtfilt(b, a, seg)
+        else:
+            filtered = seg
+    except Exception:
+        filtered = seg
+
+    # Find the most prominent peak (P-wave is usually the largest deflection)
+    # Try positive peaks first (upright P in most leads)
+    pos_peaks, pos_props = find_peaks(filtered, prominence=0.001, distance=int(0.03 * fs))
+    neg_peaks, neg_props = find_peaks(-filtered, prominence=0.001, distance=int(0.03 * fs))
+
+    best_peak = None
+    best_amp = 0
+
+    if len(pos_peaks) > 0:
+        best_pos_idx = pos_props['prominences'].argmax()
+        best_pos = pos_peaks[best_pos_idx]
+        best_pos_amp = pos_props['prominences'][best_pos_idx]
+        if best_pos_amp > best_amp:
+            best_peak = best_pos
+            best_amp = best_pos_amp
+
+    if len(neg_peaks) > 0:
+        best_neg_idx = neg_props['prominences'].argmax()
+        best_neg = neg_peaks[best_neg_idx]
+        best_neg_amp = neg_props['prominences'][best_neg_idx]
+        if best_neg_amp > best_amp:
+            best_peak = best_neg
+            best_amp = best_neg_amp
+
+    if best_peak is None:
+        return None
+
+    # P-wave must be at least 10µV prominent in the raw signal
+    raw_amp = abs(float(seg[best_peak]))
+    if raw_amp < 10:  # 10 µV minimum
+        return None
+
+    p_peak_abs = search_start + best_peak
+
+    # Onset: search backward from peak for where amplitude drops to 20% of peak
+    half_p_width = int(0.06 * fs)  # ~60ms half-width max
+    onset_start = max(0, best_peak - half_p_width)
+    p_onset_rel = onset_start
+    peak_val = abs(filtered[best_peak])
+    threshold = peak_val * 0.2
+    for k in range(best_peak - 1, onset_start - 1, -1):
+        if abs(filtered[k]) < threshold:
+            p_onset_rel = k
+            break
+    p_onset_abs = search_start + p_onset_rel
+
+    # Offset: search forward from peak for where amplitude drops to 20%
+    offset_end = min(n, best_peak + half_p_width)
+    p_offset_rel = offset_end - 1
+    for k in range(best_peak + 1, offset_end):
+        if abs(filtered[k]) < threshold:
+            p_offset_rel = k
+            break
+    p_offset_abs = search_start + p_offset_rel
+
+    # Ensure minimum P-wave width of 30ms
+    min_width = int(0.03 * fs)
+    if p_offset_abs - p_onset_abs < min_width:
+        p_onset_abs = p_peak_abs - min_width // 2
+        p_offset_abs = p_peak_abs + min_width // 2
+
+    if p_onset_abs < search_start:
+        p_onset_abs = search_start
+    if p_offset_abs >= qrs_onset:
+        p_offset_abs = qrs_onset - int(0.02 * fs)
+
+    # Final sanity
+    if p_onset_abs >= p_peak_abs or p_peak_abs >= p_offset_abs:
+        return None
+
+    p_dur_ms = (p_offset_abs - p_onset_abs) / fs * 1000
+    if p_dur_ms < 20 or p_dur_ms > 250:
+        return None
+
+    return (int(p_onset_abs), int(p_peak_abs), int(p_offset_abs))
 
 
 def _refine_wave_onset(sig: np.ndarray, current: int, peak: int, max_shift: int) -> int | None:

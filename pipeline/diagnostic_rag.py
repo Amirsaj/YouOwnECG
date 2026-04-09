@@ -150,12 +150,19 @@ OUTPUT FORMAT — respond with JSON:
     }
 }
 
+BBB RECOGNITION (critical for correct diagnosis):
+- LBBB: QRS >=120ms + V1 shows QS or rS pattern (predominantly negative) + V5/V6 shows monophasic R or broad notched R. In LBBB, ST-T changes are EXPECTED (discordant to QRS) and do NOT indicate ischemia unless Sgarbossa criteria are met.
+- RBBB: QRS >=120ms + V1 shows RSR' pattern (M-shaped, terminal R') + wide S wave in I and V6.
+- IVCD: Wide QRS that does NOT fit classic LBBB or RBBB morphology criteria.
+- When LBBB is present: ST elevation in leads with negative QRS (V1-V3) is EXPECTED and NOT STEMI. Only CONCORDANT ST changes (same direction as QRS) suggest superimposed ischemia (Sgarbossa criteria).
+
 CRITICAL RULES:
 - Base your analysis ONLY on the narrative data provided — never invent measurements
 - If a finding is ambiguous, state the uncertainty
 - Always check for reciprocal changes when ST elevation is present
 - Consider rate-related changes (tachycardia can cause ST/T changes)
 - Flag STAT findings immediately: STEMI, complete heart block, VT/VF, Brugada Type 1
+- When QRS pattern names (QS, rS, RSR', monophasic_R) are provided in the narrative, USE THEM for BBB classification
 """
 
     user_prompt = f"""Analyze this ECG systematically:
