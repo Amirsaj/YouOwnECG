@@ -201,6 +201,16 @@ def _detect_first_degree_avb(f: FeatureObject) -> Optional[DiagnosticFinding]:
     pr = f.pr_interval_ms
     if pr is None or pr <= 200:
         return None
+    # PR > 300ms is NOT first-degree AVB — it indicates either high-degree block or, more commonly,
+    # a flutter wave being measured as a P-wave (AFl 2:1-4:1 creates spurious PR of 200-400ms).
+    if pr > 300:
+        return None
+    # Non-sinus / unclear rhythms produce unreliable PR measurements.
+    if f.dominant_rhythm in ("afib", "aflutter", "tachy_unknown", "complete_avb"):
+        return None
+    # Variable PR relationship means P-waves and QRS aren't 1:1 — PR is not a meaningful measurement.
+    if f.av_relationship in ("variable_pr", "dissociated"):
+        return None
     return _make(
         "first_degree_avb", "HIGH",
         f"First-degree AV block (PR {_fmt(pr)} ms).",
@@ -230,7 +240,8 @@ def _detect_anterior_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
         return None
 
     has_lvh = bool(f.lvh_criteria_met)
-    qrs_borderline = (f.qrs_duration_global_ms or 0) >= 105
+    qrs_dur = f.qrs_duration_global_ms or 0
+    qrs_borderline = qrs_dur >= 105
 
     # LVH suppression — two patterns:
     # (1) Isolated V1/V2 elevation (no V3/V4): LVH right-precordial strain, not true STEMI
@@ -238,11 +249,13 @@ def _detect_anterior_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
     if has_lvh and qrs_borderline and not v3_v4_elevated:
         return None
 
-    # (2) rS/QS pattern in V1-V3 + LVH + QRS ≥ 115ms: LBBB-like conduction delay produces
-    # discordant (upward) ST changes in V2/V3 that are expected strain, not STEMI.
-    # Analogous to Sgarbossa discordant rule. Only suppress when all elevated leads show rS/QS.
-    qrs_dur = f.qrs_duration_global_ms or 0
-    if has_lvh and qrs_dur >= 115:
+    # (2) Discordant ST suppression for rS/QS leads in IVCD or LVH-with-borderline-QRS.
+    # In IVCD (QRS ≥ 120ms, no confirmed LBBB/RBBB) or LVH + borderline QRS, right
+    # precordial leads with rS/QS morphology show discordant (upward) ST changes that
+    # are expected conduction-delay strain, not anterior STEMI.
+    # Analogous to Sgarbossa discordant rule.
+    is_ivcd = qrs_dur >= 120 and not f.lbbb and not f.rbbb
+    if is_ivcd or (has_lvh and qrs_dur >= 115):
         rs_qs_elevated = [
             l for l in ("V1", "V2", "V3")
             if (f.st_elevation_mv.get(l) or 0) > 0.05
@@ -493,8 +506,19 @@ def _detect_long_qt(f: FeatureObject) -> Optional[DiagnosticFinding]:
     qrs = f.qrs_duration_global_ms or 0
     if qrs > 140:
         return None
-    # Threshold: 470ms (between borderline 460 and definite 480)
-    if qtc <= 470:
+    hr = f.heart_rate_ventricular_bpm or 70
+    # At HR > 120bpm (often AFl 2:1 or sinus tachycardia), Bazett severely overcorrects
+    # and produces false long QTc readings. QTc is unreliable in significant tachycardia.
+    if hr > 120:
+        return None
+    # At HR 100-120bpm, Bazett overcorrects — require stricter threshold (500ms)
+    threshold = 500 if hr > 100 else 470
+    if qtc <= threshold:
+        return None
+    # Cross-check with Fridericia (more rate-stable): if Fridericia says < 465ms, Bazett overcorrected.
+    # 465ms threshold (vs 460ms) reduces borderline false positives from rate-overcorrection.
+    qtc_frid = f.qtc_fridericia_ms
+    if qtc_frid is not None and qtc_frid < 465:
         return None
     risk = "high TdP risk" if qtc > 500 else "prolonged"
     conf = "HIGH" if qtc > 500 else "MODERATE"
