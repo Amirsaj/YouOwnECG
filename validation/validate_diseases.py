@@ -35,86 +35,22 @@ DETECTION_FIELDS = [
     "true_positive", "false_positive", "false_negative", "true_negative",
 ]
 
-# ST elevation thresholds for signal-only STEMI detection (mV)
-# Mirrors features.py thresholds
-_STEMI_THRESH = 0.1   # 1 mm for most leads
-_STEMI_ANTERIOR_THRESH = 0.15   # 1.5 mm V2-V3
-
 
 def _predict_findings(feats) -> dict[str, tuple[bool, str]]:
     """
     Derive signal-only finding predictions from FeatureObject.
 
+    Delegates to generate_signal_findings() so validation always reflects
+    the same detection logic as the runtime pipeline.
+
     Returns dict: finding_type → (is_positive, confidence)
     """
+    from agents.signal_findings import generate_signal_findings
     preds: dict[str, tuple[bool, str]] = {c: (False, "NONE") for c in VALIDATED_CONDITIONS}
-
-    # --- Conduction ---
-    if feats.lbbb:
-        preds["lbbb"] = (True, "HIGH")
-    if feats.rbbb:
-        preds["rbbb"] = (True, "HIGH")
-    if feats.wpw_pattern:
-        preds["wpw_pattern"] = (True, "HIGH")
-    if feats.lafb:
-        preds["lafb"] = (True, "MEDIUM")
-    if feats.pr_interval_ms is not None and feats.pr_interval_ms > 200:
-        preds["first_degree_avb"] = (True, "HIGH" if feats.pr_interval_ms > 220 else "MEDIUM")
-
-    # --- Rhythm ---
-    if feats.dominant_rhythm == "afib":
-        preds["afib"] = (True, "HIGH")
-    elif feats.dominant_rhythm == "afib_possible":
-        preds["afib"] = (True, "LOW")
-
-    # --- Hypertrophy ---
-    if feats.lvh_criteria_met and len(feats.lvh_criteria_met) >= 1:
-        conf = "HIGH" if len(feats.lvh_criteria_met) >= 2 else "MEDIUM"
-        preds["lvh"] = (True, conf)
-
-    if feats.low_voltage_limb or feats.low_voltage_precordial:
-        preds["low_voltage"] = (True, "HIGH")
-
-    # --- STEMI (signal-only, territory-based) ---
-    st_elev = feats.st_elevation_mv or {}
-    # Suppress STEMI in BBB or wide QRS (secondary ST changes expected)
-    bbb_active = feats.lbbb or feats.rbbb
-    wide_qrs = (feats.qrs_duration_global_ms or 0) >= 140  # very wide = IVCD
-
-    if not bbb_active and not wide_qrs:
-        anterior_leads = ["V1", "V2", "V3", "V4"]
-        ant_pos = [l for l in anterior_leads if (st_elev.get(l) or 0) >= _STEMI_ANTERIOR_THRESH]
-        if len(ant_pos) >= 2:
-            preds["anterior_stemi"] = (True, "HIGH" if len(ant_pos) >= 3 else "MEDIUM")
-        elif feats.hyperacute_t_pattern or feats.de_winter_pattern:
-            preds["anterior_stemi"] = (True, "MEDIUM")
-
-        inferior_leads = ["II", "III", "aVF"]
-        inf_pos = [l for l in inferior_leads if (st_elev.get(l) or 0) >= _STEMI_THRESH]
-        if len(inf_pos) >= 2:
-            preds["inferior_stemi"] = (True, "HIGH")
-
-        lateral_leads = ["I", "aVL", "V5", "V6"]
-        lat_pos = [l for l in lateral_leads if (st_elev.get(l) or 0) >= _STEMI_THRESH]
-        if len(lat_pos) >= 2:
-            preds["lateral_stemi"] = (True, "HIGH" if len(lat_pos) >= 3 else "MEDIUM")
-
-    # --- Long QT ---
-    # Require both Bazett AND Fridericia to agree (reduces rate-dependent FP)
-    qtc_b = feats.qtc_bazett_ms
-    qtc_f = feats.qtc_fridericia_ms
-    # Also skip if LBBB/RBBB (wide QRS inflates QT)
-    qrs_wide = (feats.qrs_duration_global_ms or 0) > 140
-    if not qrs_wide and qtc_b is not None:
-        if qtc_b >= 500 and (qtc_f is None or qtc_f >= 480):
-            preds["long_qt"] = (True, "HIGH")
-        elif qtc_b >= 480 and (qtc_f is None or qtc_f >= 460):
-            preds["long_qt"] = (True, "MEDIUM")
-
-    # --- Pericarditis ---
-    if feats.pericarditis_pattern:
-        preds["pericarditis"] = (True, "MEDIUM")
-
+    findings = generate_signal_findings(feats)
+    for f in findings:
+        if f.finding_type in preds:
+            preds[f.finding_type] = (True, f.confidence)
     return preds
 
 
