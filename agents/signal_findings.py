@@ -458,21 +458,27 @@ def _detect_brugada(f: FeatureObject) -> Optional[DiagnosticFinding]:
 
 
 def _detect_pericarditis(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    # Feature-level flag OR morphology: concave ST in >=4 leads + PR depression
+    # Feature-level flag OR morphology: concave ST in >=4 leads + PR depression.
+    # Pericarditis requires BOTH diffuse concave ST elevation AND PR depression in >=2 leads.
+    # Concave ST alone (4+ leads without PR depression) has low specificity — benign early
+    # repolarization and multi-territory MI both produce similar patterns.
     concave_leads = [l for l in f.st_curvature
                      if f.st_curvature[l] == "concave"
                      and (f.st_elevation_mv.get(l) or 0) > 0.05]
     pr_dep_leads = [l for l in f.pr_depression_mv
                     if (f.pr_depression_mv[l] or 0) > 0.05]
-    morph_pericarditis = len(concave_leads) >= 4
+    morph_pericarditis = len(concave_leads) >= 4 and len(pr_dep_leads) >= 2
     if not f.pericarditis_pattern and not morph_pericarditis:
+        return None
+    # Suppress when paced rhythm: pacemaker creates abnormal repolarization mimicking pericarditis
+    if f.dominant_rhythm in ("paced", "pacemaker"):
         return None
     elev, _ = _st_leads(f, 0.05)
     detail = f"Diffuse concave ST elevation in {', '.join(elev[:6]) or ', '.join(concave_leads[:6])}."
     if pr_dep_leads:
         detail += f" PR depression in {', '.join(pr_dep_leads[:4])}."
     detail += " Pattern consistent with pericarditis."
-    conf = "HIGH" if morph_pericarditis and pr_dep_leads else "MODERATE"
+    conf = "HIGH" if morph_pericarditis else "MODERATE"
     return _make(
         "pericarditis", conf,
         "Diffuse ST elevation — pericarditis pattern.",
