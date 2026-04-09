@@ -796,6 +796,42 @@ def _detect_sgarbossa_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
     )
 
 
+def _detect_inferior_stemi_in_lbbb(f: FeatureObject) -> Optional[DiagnosticFinding]:
+    """Inferior STEMI territory evidence in LBBB context.
+
+    Standard _detect_inferior_stemi exits early when f.lbbb=True because LBBB invalidates
+    routine ST criteria. This function restores inferior STEMI detection in LBBB by requiring:
+      - Confirmed LBBB (f.lbbb + QRS ≥120ms, no Q in lead I per AHA 2009)
+      - ≥2 inferior leads (II, III, aVF) with ST elevation ≥0.1 mV
+    Standard LBBB-related discordant inferior ST elevation is typically < 0.05 mV; reaching
+    ≥0.1 mV in ≥2 inferior leads indicates concordant elevation beyond expected discordance = STEMI.
+    """
+    if not f.lbbb or (f.qrs_duration_global_ms or 0) < 120:
+        return None
+    i_pat = f.qrs_pattern.get("I", "")
+    if i_pat and i_pat[0] == "q":
+        return None
+    inferior = ("II", "III", "aVF")
+    sig = [(l, f.st_elevation_mv.get(l) or 0) for l in inferior
+           if (f.st_elevation_mv.get(l) or 0) >= 0.1]
+    if len(sig) < 2:
+        return None
+    elev_leads = [l for l, _ in sig]
+    max_st = max(v for _, v in sig)
+    curv = [l for l in elev_leads if f.st_curvature.get(l) == "convex"]
+    conf = "HIGH" if max_st > 0.15 or curv else "MODERATE"
+    return _make(
+        "inferior_stemi", conf,
+        f"Inferior STEMI in LBBB context — {', '.join(elev_leads)} exceed concordant-elevation threshold.",
+        f"LBBB confirmed (QRS {_fmt(f.qrs_duration_global_ms)} ms). "
+        f"ST elevation ≥0.1 mV in {len(sig)} inferior leads: "
+        f"{', '.join(f'{l}={v:.2f}mV' for l, v in sig)}. "
+        f"Exceeds expected LBBB discordant elevation — consistent with inferior STEMI (RCA territory). "
+        f"Correlate with sgarbossa_stemi finding.",
+        {"st_elevation_mv": {l: v for l, v in sig}, "lbbb": True},
+    )
+
+
 def _detect_inferior_mi_established(f: FeatureObject) -> Optional[DiagnosticFinding]:
     """
     Detect established (subacute/old) inferior MI from Q-wave and R-wave amplitude pattern.
@@ -920,6 +956,7 @@ _DETECTORS = [
     # STAT conditions first
     _detect_anterior_stemi,
     _detect_inferior_stemi,
+    _detect_inferior_stemi_in_lbbb,
     _detect_inferior_mi_established,
     _detect_lateral_stemi,
     _detect_wellens,
