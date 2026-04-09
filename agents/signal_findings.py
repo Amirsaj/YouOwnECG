@@ -256,10 +256,18 @@ def _detect_inferior_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
         )
 
     # Shape-based path: convex ST curvature + QS pattern in inferior leads
-    # Detects acute/recent STEMI when absolute ST amplitude is small (wander, early, RCA occlusion)
+    # Detects acute/recent STEMI when absolute ST amplitude is small (wander, early, RCA occlusion).
+    # Specificity guards:
+    #   - QS in III alone is a normal variant (vertical heart, respiratory) — require aVF OR II+III
+    #   - Convex curvature in III alone can occur normally — require II or aVF involvement
     convex_inf = [l for l in inferior if f.st_curvature.get(l) == "convex"]
     qs_inf = [l for l in inferior if f.qrs_pattern.get(l) == "QS"]
-    if len(convex_inf) >= 1 and len(qs_inf) >= 1:
+    # Must have aVF involvement in QS OR QS in both II and III
+    avf_qs = "aVF" in qs_inf
+    multi_qs = len(qs_inf) >= 2
+    # Must have convex curvature in II or aVF (not just III)
+    convex_key = any(l in convex_inf for l in ("II", "aVF"))
+    if (avf_qs or multi_qs) and convex_key and len(convex_inf) >= 1 and len(qs_inf) >= 1:
         all_shape_leads = sorted(set(convex_inf + qs_inf))
         max_st_any = max((f.st_elevation_mv.get(l) or 0) for l in inferior)
         # Require reciprocal depression in I/aVL for HIGH confidence
@@ -702,10 +710,13 @@ def _detect_inferior_mi_established(f: FeatureObject) -> Optional[DiagnosticFind
     inferior = ["II", "III", "aVF"]
     if any((f.st_elevation_mv.get(l) or 0) > 0.1 for l in inferior):
         return None
-    # Skip if shape-based inferior STEMI fired (convex curvature + QS = acute, not established)
+    # Skip if shape-based inferior STEMI fired (uses same criteria as _detect_inferior_stemi)
     convex_inf = [l for l in inferior if f.st_curvature.get(l) == "convex"]
     qs_inf = [l for l in inferior if f.qrs_pattern.get(l) == "QS"]
-    if len(convex_inf) >= 1 and len(qs_inf) >= 1:
+    avf_qs = "aVF" in qs_inf
+    multi_qs = len(qs_inf) >= 2
+    convex_key = any(l in convex_inf for l in ("II", "aVF"))
+    if (avf_qs or multi_qs) and convex_key and len(convex_inf) >= 1 and len(qs_inf) >= 1:
         return None
 
     qs_leads = []
