@@ -42,6 +42,12 @@ def generate_signal_findings(features: FeatureObject) -> list[DiagnosticFinding]
     if "wpw_pattern" in finding_types:
         findings = [f for f in findings if f.finding_type not in ("anterior_stemi", "sgarbossa_stemi")]
 
+    # WPW inflates measured QTc — the delta wave + wide QRS lengthens the measured QT interval
+    # making QTc unreliable. Suppress long_qt when WPW is confirmed.
+    # The true JTc (J-point to T-end) would be needed, which is not computed here.
+    if "wpw_pattern" in finding_types:
+        findings = [f for f in findings if f.finding_type != "long_qt"]
+
     # LBBB inflates QTc — already handled in detector, but safety check
     # (no additional suppression needed here)
 
@@ -223,15 +229,28 @@ def _detect_anterior_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
     if len(elev_leads) < 2:
         return None
 
-    # LVH suppression: isolated V1-V2 ST elevation + QRS ≥ 110ms is a known false positive.
-    # LVH with borderline wide QRS produces right precordial discordant ST change that mimics STEMI.
-    # Only suppress when elevation is confined to V1-V2 (not V3/V4 — those push it toward true STEMI)
-    # and LVH criteria are present.
-    v3_v4_elevated = any((f.st_elevation_mv.get(l) or 0) > 0.1 for l in ("V3", "V4"))
     has_lvh = bool(f.lvh_criteria_met)
     qrs_borderline = (f.qrs_duration_global_ms or 0) >= 105
+
+    # LVH suppression — two patterns:
+    # (1) Isolated V1/V2 elevation (no V3/V4): LVH right-precordial strain, not true STEMI
+    v3_v4_elevated = any((f.st_elevation_mv.get(l) or 0) > 0.1 for l in ("V3", "V4"))
     if has_lvh and qrs_borderline and not v3_v4_elevated:
         return None
+
+    # (2) rS/QS pattern in V1-V3 + LVH + QRS ≥ 115ms: LBBB-like conduction delay produces
+    # discordant (upward) ST changes in V2/V3 that are expected strain, not STEMI.
+    # Analogous to Sgarbossa discordant rule. Only suppress when all elevated leads show rS/QS.
+    qrs_dur = f.qrs_duration_global_ms or 0
+    if has_lvh and qrs_dur >= 115:
+        rs_qs_elevated = [
+            l for l in ("V1", "V2", "V3")
+            if (f.st_elevation_mv.get(l) or 0) > 0.05
+            and f.qrs_pattern.get(l) in ("rS", "QS")
+        ]
+        elevated_in_range = [l for l in elev_leads if l in ("V1", "V2", "V3")]
+        if rs_qs_elevated and elevated_in_range and set(elevated_in_range) == set(rs_qs_elevated):
+            return None
     max_st = max(f.st_elevation_mv.get(l) or 0 for l in elev_leads)
     _, dep_leads = _st_leads(f)
     inf_dep = [l for l in dep_leads if l in ("II", "III", "aVF")]
@@ -321,13 +340,27 @@ def _detect_lateral_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
     if f.lbbb or f.rbbb:
         return None
     lateral = ["I", "aVL", "V5", "V6"]
-    # Primary: ≥2 leads at 0.1 mV; fallback: ≥1 lead at 0.05 mV (fiducials often miss aVL/I)
+    # Primary: ≥2 leads at 0.1 mV
     elev_leads = [l for l in lateral if (f.st_elevation_mv.get(l) or 0) > 0.1]
     if len(elev_leads) < 2:
-        elev_leads = [l for l in lateral if (f.st_elevation_mv.get(l) or 0) > 0.05]
+        # Fallback: ≥1 lead at 0.05 mV — only fire if curvature is convex (not LVH strain)
+        # Concave ST elevation in a single lateral lead is LVH strain / early repolarization, not STEMI
+        elev_leads = [
+            l for l in lateral
+            if (f.st_elevation_mv.get(l) or 0) > 0.05
+            and f.st_curvature.get(l) == "convex"
+        ]
     if len(elev_leads) < 1:
         return None
+
+    # LVH suppression: LVH + borderline wide QRS produces lateral strain (V5/V6 discordant ST)
+    # that mimics lateral STEMI. Only suppress when elevation stays below 0.15 mV and LVH is confirmed.
+    has_lvh = bool(f.lvh_criteria_met)
+    qrs_borderline = (f.qrs_duration_global_ms or 0) >= 105
     max_st = max(f.st_elevation_mv.get(l) or 0 for l in elev_leads)
+    if has_lvh and qrs_borderline and max_st < 0.15:
+        return None
+
     return _make(
         "lateral_stemi", "MODERATE",
         f"Lateral ST elevation in {', '.join(elev_leads)}.",
