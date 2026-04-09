@@ -796,6 +796,46 @@ def _detect_sgarbossa_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
     )
 
 
+def _detect_anterior_stemi_in_lbbb(f: FeatureObject) -> Optional[DiagnosticFinding]:
+    """Anterior STEMI territory evidence in LBBB context via concordance analysis.
+
+    Standard _detect_anterior_stemi exits when f.lbbb=True. This function uses
+    Sgarbossa concordance to detect STEMI: in LBBB, precordial leads V1-V3 are
+    normally net-negative (QS/rS) with DISCORDANT positive ST (expected pattern).
+    When a precordial lead shows CONCORDANT positive ST (elevation in the same
+    direction as a positive QRS component), that exceeds the LBBB baseline —
+    consistent with Sgarbossa criterion 1 (concordant ST elevation ≥1mm).
+
+    Fires when ≥1 precordial lead (V1-V4) has concordant elevation ≥0.1 mV.
+    Uses f.concordance_analysis computed by the morphology engine per lead.
+    """
+    if not f.lbbb or (f.qrs_duration_global_ms or 0) < 120:
+        return None
+    i_pat = f.qrs_pattern.get("I", "")
+    if i_pat and i_pat[0] == "q":
+        return None
+    precordial = ("V1", "V2", "V3", "V4")
+    concordant = [(l, f.st_elevation_mv.get(l) or 0) for l in precordial
+                  if f.concordance_analysis.get(l, "unknown") == "concordant"
+                  and (f.st_elevation_mv.get(l) or 0) >= 0.1]
+    if not concordant:
+        return None
+    elev_leads = [l for l, _ in concordant]
+    max_st = max(v for _, v in concordant)
+    curv = [l for l in elev_leads if f.st_curvature.get(l) == "convex"]
+    conf = "HIGH" if max_st > 0.2 or len(concordant) >= 2 else "MODERATE"
+    return _make(
+        "anterior_stemi", conf,
+        f"Anterior STEMI in LBBB context — concordant ST elevation in {', '.join(elev_leads)}.",
+        f"LBBB confirmed (QRS {_fmt(f.qrs_duration_global_ms)} ms). "
+        f"Concordant ST elevation (same direction as QRS deflection) in precordial leads: "
+        f"{', '.join(f'{l}={v:.2f}mV' for l, v in concordant)}. "
+        f"Concordant elevation contradicts expected LBBB discordance — Sgarbossa criterion 1. "
+        f"Correlate with sgarbossa_stemi finding.",
+        {"st_elevation_mv": {l: v for l, v in concordant}, "lbbb": True},
+    )
+
+
 def _detect_inferior_stemi_in_lbbb(f: FeatureObject) -> Optional[DiagnosticFinding]:
     """Inferior STEMI territory evidence in LBBB context.
 
@@ -955,6 +995,7 @@ def _detect_pathological_q_waves(f: FeatureObject) -> Optional[DiagnosticFinding
 _DETECTORS = [
     # STAT conditions first
     _detect_anterior_stemi,
+    _detect_anterior_stemi_in_lbbb,
     _detect_inferior_stemi,
     _detect_inferior_stemi_in_lbbb,
     _detect_inferior_mi_established,
