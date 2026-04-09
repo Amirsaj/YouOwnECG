@@ -222,6 +222,16 @@ def _detect_anterior_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
     elev_leads = [l for l in precordial if (f.st_elevation_mv.get(l) or 0) > 0.1]
     if len(elev_leads) < 2:
         return None
+
+    # LVH suppression: isolated V1-V2 ST elevation + QRS ≥ 110ms is a known false positive.
+    # LVH with borderline wide QRS produces right precordial discordant ST change that mimics STEMI.
+    # Only suppress when elevation is confined to V1-V2 (not V3/V4 — those push it toward true STEMI)
+    # and LVH criteria are present.
+    v3_v4_elevated = any((f.st_elevation_mv.get(l) or 0) > 0.1 for l in ("V3", "V4"))
+    has_lvh = bool(f.lvh_criteria_met)
+    qrs_borderline = (f.qrs_duration_global_ms or 0) >= 105
+    if has_lvh and qrs_borderline and not v3_v4_elevated:
+        return None
     max_st = max(f.st_elevation_mv.get(l) or 0 for l in elev_leads)
     _, dep_leads = _st_leads(f)
     inf_dep = [l for l in dep_leads if l in ("II", "III", "aVF")]
