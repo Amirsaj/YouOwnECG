@@ -121,6 +121,12 @@ def _detect_lbbb(f: FeatureObject) -> Optional[DiagnosticFinding]:
                   and (v5_pat == "monophasic_R" or v6_pat == "monophasic_R"))
     if not f.lbbb and not morph_lbbb:
         return None
+    # AHA 2009 LBBB criterion: septal Q waves must be ABSENT in leads I, V5, V6.
+    # Presence of q wave in lead I (qR, qRS patterns) contradicts LBBB morphology
+    # and indicates the wide QRS is likely LVH, IVCD, or another cause.
+    i_pat = f.qrs_pattern.get("I", "")
+    if i_pat and i_pat[0] == "q":  # lowercase q = initial septal Q wave
+        return None
     v1_desc = f"V1={v1_pat}" if v1_pat != "unknown" else "V1 net negative"
     return _make(
         "lbbb", "HIGH",
@@ -728,6 +734,11 @@ def _detect_sgarbossa_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
     # WPW is already screened out at the generate_signal_findings level (f.lbbb suppressed).
     qrs = f.qrs_duration_global_ms or 0
     if not f.lbbb or qrs < 120:
+        return None
+    # AHA 2009 LBBB criterion: no septal Q in lead I — Q wave contradicts true LBBB.
+    # Presence of Q in I (qR, qRS patterns) indicates LVH/IVCD, not LBBB; Sgarbossa doesn't apply.
+    i_pat = f.qrs_pattern.get("I", "")
+    if i_pat and i_pat[0] == "q":
         return None
     score = 0
     details = []
