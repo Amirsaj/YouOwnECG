@@ -1115,6 +1115,11 @@ You receive two sources of evidence — use BOTH:
 - **AXIS**: I positive + aVF negative = left axis deviation; I negative + aVF positive = right axis
 
 ## Output
+Per-lead amplitudes are ABSOLUTE values (always ≥ 0):
+- `r_mv` = R peak height above QRS-onset baseline
+- `s_mv` = S nadir depth below baseline (positive number, NOT negative; 0 if no S wave)
+- `q_mv` = Q nadir depth below baseline (positive number; 0 if no Q wave)
+
 Respond with a JSON object only:
 ```json
 {
