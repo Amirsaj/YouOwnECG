@@ -156,18 +156,39 @@ def _detect_wpw(f: FeatureObject) -> Optional[DiagnosticFinding]:
 
 
 def _detect_afib(f: FeatureObject) -> Optional[DiagnosticFinding]:
-    if f.dominant_rhythm != "afib":
-        return None
     hr = f.heart_rate_ventricular_bpm
     rate_class = "RVR" if hr and hr > 100 else "controlled" if hr and hr >= 60 else "slow"
-    return _make(
-        "afib", "HIGH",
-        f"Atrial fibrillation detected ({rate_class}, {_fmt(hr)} bpm).",
-        f"Irregularly irregular RR intervals. P waves absent. "
-        f"Ventricular rate {_fmt(hr)} bpm ({rate_class}). "
-        f"QRS {_fmt(f.qrs_duration_global_ms)} ms.",
-        {"dominant_rhythm": "afib", "heart_rate_ventricular_bpm": hr, "rhythm_regular": False},
-    )
+
+    # Primary: rhythm classifier explicitly identified AFib
+    if f.dominant_rhythm == "afib":
+        return _make(
+            "afib", "HIGH",
+            f"Atrial fibrillation detected ({rate_class}, {_fmt(hr)} bpm).",
+            f"Irregularly irregular RR intervals. P waves absent. "
+            f"Ventricular rate {_fmt(hr)} bpm ({rate_class}). "
+            f"QRS {_fmt(f.qrs_duration_global_ms)} ms.",
+            {"dominant_rhythm": "afib", "heart_rate_ventricular_bpm": hr, "rhythm_regular": False},
+        )
+
+    # Secondary: variable PR relationship + AV ratio > 1.0 suggests AFib with f-wave detection
+    # Rapid AFib with RVR can appear quasi-regular (CV 0.07–0.12) but f-waves detected as P-waves
+    # produce variable PR and av_ratio > 1.0 (more "P-waves" than QRS).
+    if (f.av_relationship in ("variable_pr", "dissociated")
+            and (f.av_ratio or 1.0) > 1.05
+            and (f.p_amplitude_mv or 1.0) < 0.12  # small pseudo-P / f-waves
+            and f.dominant_rhythm != "afib"):
+        return _make(
+            "afib", "MODERATE",
+            f"Probable AFib — variable PR + AV ratio {_fmt(f.av_ratio, 2)} ({rate_class}, {_fmt(hr)} bpm).",
+            f"Variable PR ({_fmt(f.pr_interval_ms)} ms) with AV ratio {_fmt(f.av_ratio, 2)} > 1 "
+            f"suggests fibrillatory waves misidentified as P-waves. "
+            f"Ventricular rate {_fmt(hr)} bpm. RR mildly irregular. "
+            f"Consistent with AFib-RVR masked as quasi-regular sinus tachycardia.",
+            {"av_relationship": f.av_relationship, "av_ratio": f.av_ratio,
+             "p_amplitude_mv": f.p_amplitude_mv, "dominant_rhythm": f.dominant_rhythm},
+        )
+
+    return None
 
 
 def _detect_first_degree_avb(f: FeatureObject) -> Optional[DiagnosticFinding]:
