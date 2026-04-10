@@ -223,6 +223,17 @@ def _detect_first_degree_avb(f: FeatureObject) -> Optional[DiagnosticFinding]:
     # Variable PR relationship means P-waves and QRS aren't 1:1 — PR is not a meaningful measurement.
     if f.av_relationship in ("variable_pr", "dissociated"):
         return None
+    # Paced ventricular rhythm: wide QRS (≥120ms) triggered by a pacemaker spike has no
+    # meaningful AV conduction time. The apparent PR is just the pacemaker timing, not
+    # the native AV node delay. Suppress when dominant_rhythm="paced" or QRS ≥120ms
+    # combined with LBBB-like V1 morphology (V1=QS/rS = typical paced pattern in RV pacing).
+    qrs = f.qrs_duration_global_ms or 0
+    if f.dominant_rhythm == "paced":
+        return None
+    if qrs >= 120 and f.qrs_pattern.get("V1", "") in ("QS", "rS", "fragmented") and not f.lbbb:
+        # Only suppress if this looks like ventricular pacing (LBBB-type V1 with QRS>120 but
+        # no confirmed LBBB, because genuine LBBB+1AVB should still fire).
+        return None
     return _make(
         "first_degree_avb", "HIGH",
         f"First-degree AV block (PR {_fmt(pr)} ms).",
