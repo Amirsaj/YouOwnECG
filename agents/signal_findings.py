@@ -286,7 +286,18 @@ def _detect_anterior_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
         ]
         elevated_in_range = [l for l in elev_leads if l in ("V1", "V2", "V3")]
         if rs_qs_elevated and elevated_in_range and set(elevated_in_range) == set(rs_qs_elevated):
-            return None
+            # Escape: very high ST elevation (>0.25mV) exceeds expected IVCD discordance.
+            # IVCD-related discordant ST is typically < 0.15mV; >0.25mV in a QS/rS lead
+            # with concordant or isoelectric polarity indicates true STEMI overriding the
+            # conduction delay pattern.
+            max_suppressed = max((f.st_elevation_mv.get(l) or 0) for l in rs_qs_elevated)
+            concordant_high = [
+                l for l in rs_qs_elevated
+                if (f.st_elevation_mv.get(l) or 0) >= 0.25
+                and f.concordance_analysis.get(l, "unknown") in ("concordant", "isoelectric")
+            ]
+            if max_suppressed < 0.25 or not concordant_high:
+                return None
     max_st = max(f.st_elevation_mv.get(l) or 0 for l in elev_leads)
     _, dep_leads = _st_leads(f)
     inf_dep = [l for l in dep_leads if l in ("II", "III", "aVF")]
