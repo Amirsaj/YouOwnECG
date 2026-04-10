@@ -145,6 +145,12 @@ def _detect_rbbb(f: FeatureObject) -> Optional[DiagnosticFinding]:
     morph_rbbb = v1_pat == "RSR'" and qrs >= 110
     if not f.rbbb and not morph_rbbb:
         return None
+    # RBBB morphology cross-check: V1=QR (large Q then R) indicates net negative V1 with
+    # some positive deflection — a pattern typical of LBBB + concurrent anterior MI or pacing,
+    # NOT RBBB. True RBBB requires a terminal R' component (RSR', rSR', qR, fragmented with
+    # terminal positivity). Suppress when the feature flag fires but V1 is distinctly non-RBBB.
+    if f.rbbb and v1_pat == "QR":
+        return None
     v1_desc = f"V1={v1_pat}" if v1_pat != "unknown" else "RSR' in V1"
     return _make(
         "rbbb", "HIGH",
