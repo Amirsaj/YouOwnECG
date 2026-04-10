@@ -390,11 +390,13 @@ def _detect_lateral_stemi(f: FeatureObject) -> Optional[DiagnosticFinding]:
     # Primary: ≥2 leads at 0.1 mV
     elev_leads = [l for l in lateral if (f.st_elevation_mv.get(l) or 0) > 0.1]
     if len(elev_leads) < 2:
-        # Fallback: ≥1 lead at 0.05 mV — only fire if curvature is convex (not LVH strain)
-        # Concave ST elevation in a single lateral lead is LVH strain / early repolarization, not STEMI
+        # Fallback: ≥1 lead at 0.08 mV — only fire if curvature is convex (not LVH strain).
+        # Concave ST elevation in a single lateral lead is LVH strain / early repolarization, not STEMI.
+        # 0.08 mV is chosen as the minimal clinically meaningful threshold (below this is within
+        # normal measurement noise and does not represent significant ST deviation).
         elev_leads = [
             l for l in lateral
-            if (f.st_elevation_mv.get(l) or 0) > 0.05
+            if (f.st_elevation_mv.get(l) or 0) >= 0.08
             and f.st_curvature.get(l) == "convex"
         ]
     if len(elev_leads) < 1:
