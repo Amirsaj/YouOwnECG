@@ -20,6 +20,13 @@ LEAD_NAME_MAP = {
     "avr": "aVR", "avl": "aVL", "avf": "aVF",
     "AVR": "aVR", "AVL": "aVL", "AVF": "aVF",
     "lead_i": "I", "lead_ii": "II", "lead_iii": "III",
+    # LUDB writes all leads as lowercase ("i, ii, iii, v1..v6"). Without these
+    # mappings _reorder_to_standard drops 9 of 12 leads on every LUDB record,
+    # which silently breaks axis/Sokolow-Lyon/Cornell/V1-V6-amplitude
+    # computation downstream.
+    "i": "I", "ii": "II", "iii": "III",
+    "v1": "V1", "v2": "V2", "v3": "V3", "v4": "V4", "v5": "V5", "v6": "V6",
+    "V1 ": "V1", "V2 ": "V2",
 }
 
 # PHI fields that must never appear in RawECGRecord or any downstream object

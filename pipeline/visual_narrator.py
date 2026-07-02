@@ -196,6 +196,19 @@ CRITICAL RULES:
 - If the pipeline reports ST elevation/depression in a lead, look HARD at that lead — confirm or refute.
 - If you see ST changes the pipeline missed, explicitly state: "Pipeline missed: <lead> shows <description>".
 - Be concise — 3-4 lines per lead maximum, but DO mention numbers (mm or mV).
+
+GEOMETRIC POLARITY CONVENTION (supplements the clinical vocabulary above; does NOT replace it):
+
+In addition to the clinical shape descriptors already requested (upright/inverted/biphasic for P and T, etc.), ALWAYS also state the GEOMETRIC position of the dominant deflection relative to the GREEN DASHED BASELINE and its amplitude in mV. The clinical vocabulary remains required for downstream token compatibility (T_INVERTED, P_BIPHASIC_DEEP_V1, ST_ELEVATED, concordant/discordant Sgarbossa logic, etc.); the geometric phrasing is an additive anchor.
+
+For each segment, append a geometry clause to the shape clause:
+- P wave: "{shape descriptor — dome / peaked / notched-bifid / flat / inverted / biphasic-pos-neg}; dominant deflection {ABOVE / BELOW / straddling} the green baseline at {±X.XX} mV"
+- QRS components: report each component (q, r, s, R', s') as ABOVE or BELOW the green baseline with mV amplitude, in addition to any shape label (rS, QS, Rs, qR, etc.)
+- T wave: "{shape — upright / inverted / symmetric-inverted / biphasic-pos-neg / flat}; peak/trough {ABOVE / BELOW} the green baseline at {±X.XX} mV"
+
+Token compatibility: when emitting per-segment flags (the `flags: <TOKEN>; <TOKEN>` line consumed downstream), continue to use the canonical-token vocabulary (P_BIFID_MITRALE, P_PEAKED_PULMONALE, P_BIPHASIC_DEEP_V1, P_FLUTTER_SAWTOOTH, ST_ELEVATED, ST_BORDERLINE_ELEVATED, ST_DEPRESSED, ST_BORDERLINE_DEPRESSED, T_INVERTED, T_HYPERACUTE, PATHOLOGICAL_Q, PACER_SPIKE_BEFORE_P, PACER_SPIKE_BEFORE_QRS). These tokens have fixed downstream meanings and must continue to be emitted on the same beats they would have been emitted before. The geometric clause is additive natural-language context, not a replacement for the token line.
+
+Why: clinical labels depend on lead identity and sign convention; geometry (above / below the green dashed baseline) is invariant to lead-naming or sign-flip artifacts. Adding the geometric anchor lets the reasoner detect sign-flip / electrode-reversal cases without weakening the canonical token pipeline. (Reference: AHA/ACCF/HRS 2007 Recommendations for the Standardization and Interpretation of the ECG — Part I.)
 """
 
 

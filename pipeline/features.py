@@ -556,7 +556,7 @@ def _wave_area(sig: np.ndarray, fpt: Optional[np.ndarray], wave: str) -> Optiona
     areas = []
     for s, e in zip(starts, ends):
         if s >= 0 and e >= 0 and e > s:
-            areas.append(float(np.trapz(sig[s:e+1])))
+            areas.append(float(np.trapezoid(sig[s:e+1])))
 
     return float(np.median(areas)) if areas else None
 

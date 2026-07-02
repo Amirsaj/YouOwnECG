@@ -1,6 +1,39 @@
 % ══════════════════════════════════════════════════════════════════════════
-% YouOwnECG — Bibliography
+% CardioTrace — Bibliography
 % ══════════════════════════════════════════════════════════════════════════
+
+% ── Ensemble / decorrelation theory ──────────────────────────────────────
+
+@article{breiman1996bagging,
+  title   = {Bagging Predictors},
+  author  = {Breiman, Leo},
+  journal = {Machine Learning},
+  volume  = {24},
+  number  = {2},
+  pages   = {123--140},
+  year    = {1996},
+}
+
+@article{dietterich2000ensemble,
+  title   = {Ensemble Methods in Machine Learning},
+  author  = {Dietterich, Thomas G.},
+  journal = {Multiple Classifier Systems (MCS 2000), Lecture Notes in Computer Science},
+  volume  = {1857},
+  pages   = {1--15},
+  year    = {2000},
+  publisher = {Springer},
+}
+
+% ── Segment-level ECG methods ─────────────────────────────────────────────
+
+@inproceedings{yang2022cat,
+  title     = {A Multi-Task {SE-CNN}-{Transformer} Architecture for {ECG} Beat Classification Using Component-Aware Attention},
+  author    = {Yang, Yue and Wu, Yue and Jin, Rubin and Zhang, Weizhong},
+  booktitle = {Proceedings of the 2022 IEEE International Conference on Bioinformatics and Biomedicine (BIBM)},
+  year      = {2022},
+  pages     = {1580--1585},
+  publisher = {IEEE},
+}
 
 % ── Datasets ──────────────────────────────────────────────────────────────
 
@@ -386,4 +419,362 @@
   pages   = {206--215},
   year    = {2019},
   doi     = {10.1038/s42256-019-0048-x},
+}
+
+% ── Aliases for cite-key mismatches ──────────────────────────────────
+
+% main.tex uses ribeiro2020automatic, bib has ribeiro2020code
+@article{ribeiro2020automatic,
+  title   = {Automatic diagnosis of the 12-lead {ECG} using a deep neural network},
+  author  = {Ribeiro, Ant\^onio H. and others},
+  journal = {Nature Communications},
+  volume  = {11},
+  pages   = {1760},
+  year    = {2020},
+  doi     = {10.1038/s41467-020-15432-4},
+}
+
+% main.tex uses zheng2020chapman
+@article{zheng2020chapman,
+  title   = {A 12-lead electrocardiogram database for arrhythmia research covering more than 10,000 patients},
+  author  = {Zheng, Jianwei and Zhang, Jianming and Danioko, Sidy and Yao, Hai
+             and Guo, Hangyuan and Rakovski, Cyril},
+  journal = {Scientific Data},
+  volume  = {7},
+  number  = {1},
+  pages   = {48},
+  year    = {2020},
+  doi     = {10.1038/s41597-020-0386-x},
+}
+
+% ── New references added for CardioTrace revision ────────────────────
+
+% --- ECG-LLM Direct Competitors ---
+
+@article{li2026pulse,
+  title   = {Teach Multimodal {LLMs} to Comprehend Electrocardiographic Images},
+  author  = {Liu, Ruoqi and Bai, Yuelin and Yue, Xiang and Zhang, Ping},
+  journal = {npj Digital Medicine},
+  year    = {2026},
+  note    = {arXiv:2410.19008},
+  doi     = {10.1038/s41746-026-02551-3},
+}
+
+@inproceedings{qheart2025,
+  title     = {{Q-Heart}: {ECG} Question Answering via Knowledge-Informed Multimodal {LLMs}},
+  author    = {Pham, Hung Manh and Tang, Jiawen and Saeed, Aaqib and Ma, Dong},
+  booktitle = {European Conference on Artificial Intelligence (ECAI)},
+  year      = {2025},
+  note      = {arXiv:2505.06296},
+}
+
+@inproceedings{ckepe2024,
+  title     = {Zero-Shot {ECG} Classification with Multimodal Learning and Test-time Clinical Knowledge Enhancement},
+  author    = {Liu, Che and Wan, Zhongwei and Ouyang, Cheng and Shah, Anand and Bai, Wenjia and Arcucci, Rossella},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2024},
+  note      = {arXiv:2403.06659},
+}
+
+@article{ecg_lm_2025,
+  title   = {{ECG-LM}: Understanding Electrocardiogram with a Large Language Model},
+  author  = {Yang, Kaixuan and Hong, Mengyue and Zhang, Jiacheng and others},
+  journal = {Health Data Science},
+  volume  = {5},
+  pages   = {0221},
+  year    = {2025},
+  doi     = {10.34133/hds.0221},
+}
+
+@inproceedings{ecg_chat2024,
+  title     = {{ECG-Chat}: A Large {ECG}-Language Model for Cardiac Disease Diagnosis},
+  author    = {Zhao, Yubao and Kang, Jiahao and Zhang, Tong and Han, Puyu and Chen, Tingting},
+  booktitle = {IEEE International Conference on Multimedia and Expo (ICME)},
+  year      = {2025},
+  note      = {arXiv:2408.08849},
+}
+
+@inproceedings{meit2024,
+  title     = {{MEIT}: Multimodal Electrocardiogram Instruction Tuning on Large Language Models for Report Generation},
+  author    = {Wan, Zhongwei and Liu, Che and Wang, Xin and Tao, Chaofan and others},
+  booktitle = {Findings of the Association for Computational Linguistics (ACL)},
+  year      = {2025},
+  note      = {arXiv:2403.04945},
+}
+
+@article{ansari2025ecg_llm_survey,
+  title   = {A survey of transformers and large language models for {ECG} diagnosis: advances, challenges, and future directions},
+  author  = {Ansari, Mohammad Yaqub and others},
+  journal = {Artificial Intelligence Review},
+  volume  = {58},
+  pages   = {261},
+  year    = {2025},
+  doi     = {10.1007/s10462-025-11259-x},
+}
+
+% --- GPT-4o on ECG ---
+
+@article{seki2025ecg_vqa,
+  title   = {Assessing the performance of zero-shot visual question answering in multimodal large language models for 12-lead {ECG} image interpretation},
+  author  = {Seki, Toshiki and others},
+  journal = {Frontiers in Cardiovascular Medicine},
+  volume  = {12},
+  year    = {2025},
+  doi     = {10.3389/fcvm.2025.1458289},
+}
+
+@article{lee2025ecg_mi,
+  title   = {Comparative Diagnostic Performance of a Multimodal Large Language Model Versus a Dedicated Electrocardiogram {AI} in Detecting Myocardial Infarction From Electrocardiogram Images},
+  author  = {Lee, Joon-myoung and others},
+  journal = {JMIR AI},
+  volume  = {4},
+  pages   = {e75910},
+  year    = {2025},
+  doi     = {10.2196/75910},
+}
+
+@article{engelstein2025gpt4o_ecg,
+  title   = {Effectiveness of the {GPT-4o} Model in Interpreting Electrocardiogram Images for Cardiac Diagnostics},
+  author  = {Engelstein, Eyal and others},
+  journal = {JMIR AI},
+  volume  = {4},
+  pages   = {e74426},
+  year    = {2025},
+  doi     = {10.2196/74426},
+}
+
+% --- Vision Model Technical Reports ---
+
+@article{gemma3_2025,
+  title   = {Gemma 3 Technical Report},
+  author  = {{Gemma Team, Google DeepMind}},
+  journal = {arXiv preprint arXiv:2503.19786},
+  year    = {2025},
+}
+
+@article{qwen25vl2025,
+  title   = {{Qwen2.5-VL} Technical Report},
+  author  = {{Qwen Team, Alibaba Group}},
+  journal = {arXiv preprint arXiv:2502.13923},
+  year    = {2025},
+}
+
+@misc{qwen3vl2025,
+  title        = {{Qwen3-VL}: Native multimodal foundation models with explicit thinking traces},
+  author       = {{Qwen Team, Alibaba Group}},
+  year         = {2025},
+  howpublished = {Model release, Hugging Face},
+  note         = {Available at \url{https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct}},
+}
+
+@article{minicpmv2024,
+  title   = {{MiniCPM-V}: A {GPT-4V} Level {MLLM} on Your Phone},
+  author  = {Yao, Yuan and Yu, Tianyu and Zhang, Ao and Wang, Chongyi and others},
+  journal = {arXiv preprint arXiv:2408.01800},
+  year    = {2024},
+}
+
+@inproceedings{llavamed2023,
+  title     = {{LLaVA-Med}: Training a Large Language-and-Vision Assistant for Biomedicine in One Day},
+  author    = {Li, Chunyuan and Wong, Cliff and Zhang, Sheng and Usuyama, Naoto and Liu, Haotian and Yang, Jianwei and Naumann, Tristan and Poon, Hoifung and Gao, Jianfeng},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+  note      = {arXiv:2306.00890},
+}
+
+@article{deepseek_r1_2025,
+  title   = {{DeepSeek-R1}: Incentivizing Reasoning Capability in {LLMs} via Reinforcement Learning},
+  author  = {{DeepSeek-AI}},
+  journal = {arXiv preprint arXiv:2501.12948},
+  year    = {2025},
+}
+
+@misc{anthropic_haiku45_2025,
+  title        = {{Claude Haiku 4.5}: Extended-thinking small model release},
+  author       = {{Anthropic}},
+  year         = {2025},
+  howpublished = {Model release, Anthropic API},
+  note         = {Model id \texttt{claude-haiku-4-5-20251001}; supports extended-thinking mode with configurable token budget. \url{https://www.anthropic.com/news/claude-haiku-4-5}},
+}
+
+@misc{openai_o4mini_2025,
+  title        = {{OpenAI o4-mini}: Reasoning-tuned small model},
+  author       = {{OpenAI}},
+  year         = {2025},
+  howpublished = {Model release, OpenAI API},
+  note         = {Reasoning effort tunable via \texttt{reasoning\_effort} parameter (low/medium/high). \url{https://platform.openai.com/docs/models/o4-mini}},
+}
+
+% --- RAG in Healthcare ---
+
+@inproceedings{imedrag2025,
+  title     = {Improving Retrieval-Augmented Generation in Medicine with Iterative Follow-up Questions},
+  author    = {Xiong, Guangzhi and Jin, Qiao and Wang, Xiao and Zhang, Minjia and Lu, Zhiyong and Zhang, Aidong},
+  booktitle = {Pacific Symposium on Biocomputing},
+  volume    = {30},
+  pages     = {199--214},
+  year      = {2025},
+  note      = {arXiv:2408.00727},
+}
+
+@inproceedings{medgraphrag2025,
+  title     = {Medical Graph {RAG}: Towards Safe Medical Large Language Model via Graph Retrieval-Augmented Generation},
+  author    = {Wu, Junde and Zhu, Jiayuan and Qi, Yunli and Chen, Jianing and Xu, Mudong and Menolascina, Filippo and Jin, Yueming and Grau, Vicente},
+  booktitle = {Proceedings of the Association for Computational Linguistics (ACL)},
+  year      = {2025},
+  note      = {arXiv:2408.04187},
+}
+
+% --- Agentic AI ---
+
+@article{deeprare2025,
+  title   = {An agentic system for rare disease diagnosis with traceable reasoning},
+  author  = {Zhao, Wen and Wu, Chi and Fan, Yujia and others},
+  journal = {Nature},
+  volume  = {651},
+  number  = {8106},
+  pages   = {775--784},
+  year    = {2025},
+  doi     = {10.1038/s41586-025-10097-9},
+}
+
+% --- XAI for ECG ---
+
+@article{explainability_cost_2025,
+  title   = {The cost of explainability in artificial intelligence-enhanced electrocardiogram models},
+  author  = {Patlatzoglou, Konstantinos and Pastika, Lieke and Barker, Joseph and others},
+  journal = {npj Digital Medicine},
+  volume  = {8},
+  pages   = {747},
+  year    = {2025},
+  doi     = {10.1038/s41746-025-02122-y},
+}
+
+@article{gcx2025,
+  title   = {A novel {XAI} framework for explainable {AI-ECG} using generative counterfactual {XAI}},
+  author  = {Jang, Jae Hyung and Jo, Yong-Yeon and Kang, Sora and Son, Jeong-Min and Lee, Ho Sung and Kwon, Joon-myoung and Lee, Min Sung},
+  journal = {Scientific Reports},
+  volume  = {15},
+  pages   = {23608},
+  year    = {2025},
+  doi     = {10.1038/s41598-025-08080-5},
+}
+
+@article{ecgxplaim2025,
+  title   = {{ECG-XPLAIM}: eXPlainable Locally-adaptive Artificial Intelligence Model for arrhythmia detection},
+  author  = {Pantelidis, Panagiotis and Ruiperez-Campillo, Samuel and Vogt, Julia E. and others},
+  journal = {Frontiers in Cardiovascular Medicine},
+  volume  = {12},
+  year    = {2025},
+  doi     = {10.3389/fcvm.2025.1659971},
+}
+
+% --- Regulatory ---
+
+@article{eu_ai_act_2024,
+  title   = {Regulation ({EU}) 2024/1689 laying down harmonised rules on artificial intelligence ({AI} Act)},
+  author  = {{European Parliament and Council}},
+  journal = {Official Journal of the European Union},
+  volume  = {L 2024/1689},
+  year    = {2024},
+}
+
+@article{eu_ai_act_implications_2024,
+  title   = {Navigating the {EU AI Act}: implications for regulated digital medical products},
+  author  = {Aboy, Mateo and Minssen, Timo and Vayena, Effy},
+  journal = {npj Digital Medicine},
+  volume  = {7},
+  pages   = {237},
+  year    = {2024},
+  doi     = {10.1038/s41746-024-01232-3},
+}
+
+% --- Clinical Guidelines ---
+
+@article{thygesen2018fourth,
+  title   = {Fourth universal definition of myocardial infarction (2018)},
+  author  = {Thygesen, Kristian and Alpert, Joseph S. and Jaffe, Allan S. and others},
+  journal = {Circulation},
+  volume  = {138},
+  number  = {20},
+  pages   = {e218--e270},
+  year    = {2018},
+  doi     = {10.1161/CIR.0000000000000617},
+}
+
+@article{kalyakulina2020ludb,
+  title   = {{LUDB}: A new open-access validation database for electrocardiogram delineation algorithms},
+  author  = {Kalyakulina, Alena and Yusipov, Igor and Moskalenko, Viktor and Nikolskiy, Alexander and Kosonogov, Konstantin and Zolotykh, Nikolai and Ivanchenko, Mikhail},
+  journal = {arXiv preprint arXiv:2008.01584},
+  year    = {2020},
+}
+
+@book{marriott2019practical,
+  title     = {Marriott's Practical Electrocardiography},
+  author    = {Wagner, Galen S. and Strauss, David G.},
+  edition   = {13th},
+  year      = {2019},
+  publisher = {Wolters Kluwer},
+}
+
+% --- Statistics ---
+
+@article{flahault2005sample,
+  title   = {Sample size calculation should be performed for design accuracy in diagnostic test studies},
+  author  = {Flahault, Antoine and Cadilhac, Mary and Thomas, Georges},
+  journal = {Journal of Clinical Epidemiology},
+  volume  = {58},
+  number  = {8},
+  pages   = {859--862},
+  year    = {2005},
+  doi     = {10.1016/j.jclinepi.2004.12.009},
+}
+
+@article{newcombe1998ci,
+  title   = {Two-sided confidence intervals for the single proportion: comparison of seven methods},
+  author  = {Newcombe, Robert G.},
+  journal = {Statistics in Medicine},
+  volume  = {17},
+  number  = {8},
+  pages   = {857--872},
+  year    = {1998},
+  doi     = {10.1002/(SICI)1097-0258(19980430)17:8<857::AID-SIM777>3.0.CO;2-E},
+}
+
+@article{bossuyt2015stard,
+  title   = {{STARD} 2015: An Updated List of Essential Items for Reporting Diagnostic Accuracy Studies},
+  author  = {Bossuyt, Patrick M. and Reitsma, Johannes B. and Bruns, David E. and others},
+  journal = {BMJ},
+  volume  = {351},
+  pages   = {h5527},
+  year    = {2015},
+  doi     = {10.1136/bmj.h5527},
+}
+
+% --- Placeholder for cite keys used but not yet fully resolved ---
+
+@article{gem_ecg_2025,
+  title   = {Gemma for {ECG}: vision model benchmarks},
+  author  = {{Placeholder}},
+  journal = {TBD},
+  year    = {2025},
+  note    = {Citation to be resolved},
+}
+
+@article{rag_healthcare_2024,
+  title   = {Enhancing medical {AI} with retrieval-augmented generation: a review},
+  author  = {Kohandel Gargari, Omid and Habibi, Golara},
+  journal = {SAGE Digital Health},
+  year    = {2025},
+  doi     = {10.1177/20552076251337177},
+}
+
+@article{rag_systematic_2025,
+  title   = {Evaluating Retrieval-Augmented Generation Variants for Clinical Decision Support},
+  author  = {{MDPI Electronics authors}},
+  journal = {Electronics},
+  volume  = {14},
+  number  = {21},
+  pages   = {4227},
+  year    = {2025},
 }

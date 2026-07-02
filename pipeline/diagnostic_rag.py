@@ -1,332 +1,124 @@
 """
-Two-stage RAG diagnostic reasoning pipeline.
+Single-stage RAG diagnostic reasoning pipeline.
 
-Stage 1 — Observation Extraction:
-  Narrator output + textbook RAG → LLM reasoner → structured clinical observations
-  ("What am I seeing on this ECG?")
+Architecture:
+  Narration + pipeline measurements + disease criteria → Reasoner LLM → Diagnoses
 
-Stage 2 — Disease Matching:
-  Observations + disease knowledge base (.md files) → validate findings against criteria
-  ("What disease does this match? Do the criteria actually hold?")
+The reasoner sees the full picture in one call: the ECG narration (from Gemma
+vision and/or pipeline narrator), the computed features as measurements, and
+the relevant disease criteria from the knowledge base. It reasons through
+to diagnoses with evidence.
 
-This architecture mirrors how cardiology departments work:
-  Fellow describes the ECG (narrator) → attending interprets with textbook knowledge (Stage 1)
-  → compares against diagnostic criteria for each condition (Stage 2)
+All prompts and settings live in rag_prompts.py.
 """
 
 from __future__ import annotations
 import json
-import os
+import re
 from pathlib import Path
-from typing import Optional
 
-# Disease KB directory
+from pipeline.rag_prompts import (
+    REASONER_SYSTEM_PROMPT,
+    REASONER_USER_TEMPLATE,
+    NARRATION_TO_DISEASE_FILES,
+    EXTRACTION_SETTINGS,
+    SAFETY_NET_RULES,
+)
+
 DISEASE_KB_DIR = Path(__file__).resolve().parents[1] / "docs" / "architecture" / "nodes" / "diseases"
 
-# Observation categories that Stage 1 should extract
-OBSERVATION_SCHEMA = {
-    "rhythm": {
-        "description": "Rhythm analysis",
-        "fields": ["type", "regularity", "p_wave_status", "av_relationship", "rate_bpm"]
-    },
-    "conduction": {
-        "description": "Conduction system assessment",
-        "fields": ["pr_interval_status", "qrs_width_status", "bundle_branch_pattern", "axis_deviation"]
-    },
-    "ischemia": {
-        "description": "Ischemia/injury assessment",
-        "fields": ["st_changes", "territory", "reciprocal_changes", "t_wave_changes", "q_waves"]
-    },
-    "morphology": {
-        "description": "Structural/morphological findings",
-        "fields": ["voltage_criteria", "strain_pattern", "chamber_enlargement", "special_patterns"]
-    },
-    "repolarization": {
-        "description": "Repolarization abnormalities",
-        "fields": ["qtc_status", "t_wave_abnormalities", "u_waves"]
-    },
-}
-
-# Maps observation keywords → disease KB files to load
-OBSERVATION_TO_DISEASE_FILES = {
-    "afib": ["atrial_fibrillation.md"],
-    "aflutter": ["atrial_flutter.md"],
-    "irregular": ["atrial_fibrillation.md", "sinus_arrhythmia.md"],
-    "absent_p": ["atrial_fibrillation.md", "junctional_rhythm.md"],
-    "prolonged_pr": ["first_degree_av_block.md"],
-    "dropped_beat": ["second_degree_av_block_type1.md", "second_degree_av_block_type2.md"],
-    "av_dissociation": ["complete_av_block.md"],
-    "wide_qrs": ["lbbb.md", "rbbb.md", "wpw.md", "ventricular_tachycardia.md"],
-    "lbbb_pattern": ["lbbb.md", "sgarbossa_criteria.md"],
-    "rbbb_pattern": ["rbbb.md"],
-    "left_axis": ["lafb.md"],
-    "right_axis": ["rvh.md", "lpfb.md"],
-    "st_elevation": ["stemi_anterior.md", "stemi_inferior.md", "stemi_lateral.md",
-                     "pericarditis.md", "early_repolarization.md", "brugada_type1.md"],
-    "st_depression": ["nstemi.md", "subendocardial_ischemia.md"],
-    "t_inversion": ["wellens_syndrome.md", "t_wave_inversion_patterns.md", "strain_pattern.md"],
-    "hyperacute_t": ["stemi_anterior.md", "stemi_equivalent_patterns.md"],
-    "tall_voltage": ["lvh.md", "voltage_criteria_reference.md"],
-    "low_voltage": ["low_voltage.md", "pericardial_effusion.md"],
-    "short_pr": ["wpw.md"],
-    "long_qt": ["long_qt.md", "long_qt_tdp.md"],
-    "bradycardia": ["sinus_bradycardia.md", "sick_sinus_syndrome.md"],
-    "tachycardia": ["sinus_tachycardia.md", "svt.md", "ventricular_tachycardia.md"],
-    "pvc": ["pvc.md"],
-    "pathological_q": ["old_mi_anterior.md", "old_mi_inferior.md", "old_mi_lateral.md"],
-}
+# Keep old name for backward compat with dashboard imports
+OBSERVATION_TO_DISEASE_FILES = NARRATION_TO_DISEASE_FILES
 
 
-def build_stage1_prompt(narrative: str, rag_evidence: str) -> tuple[str, str]:
-    """
-    Build the Stage 1 prompt: extract clinical observations from the narrative.
+# ---------------------------------------------------------------------------
+# Disease file selection — scans narration text + features for keywords
+# ---------------------------------------------------------------------------
 
-    Returns (system_prompt, user_prompt).
-    """
-    system_prompt = """You are a senior cardiology fellow performing a systematic ECG interpretation.
-
-You will receive:
-1. A beat-by-beat ECG narrative describing morphological features across multiple leads
-2. Relevant textbook evidence from ECG reference books
-
-Your task: Extract structured clinical observations. Think step by step through the ECG systematically.
-
-SYSTEMATIC APPROACH (follow this order):
-1. RATE: Calculate ventricular rate. Bradycardia (<60)? Tachycardia (>100)?
-2. RHYTHM: Regular or irregular? Is there a pattern to irregularity? P-waves present? P:QRS ratio?
-3. P-WAVES: Morphology (upright/inverted/absent/bifid/peaked)? Duration? Consistent across beats?
-4. PR INTERVAL: Normal (120-200ms)? Prolonged? Short? Progressive lengthening (Wenckebach)?
-5. QRS: Narrow (<120ms) or wide? If wide: LBBB pattern? RBBB pattern? Delta wave (WPW)?
-6. ST SEGMENT: Elevation? Depression? Which leads? Territorial pattern? Reciprocal changes?
-7. T-WAVES: Normal? Inverted? Hyperacute? Symmetric vs asymmetric inversion?
-8. QT INTERVAL: QTc prolonged? Which formula?
-9. OVERALL: Synthesize — what are the key findings?
-
-OUTPUT FORMAT — respond with JSON:
-{
-    "reasoning": "step-by-step analysis following the systematic approach above",
-    "observations": {
-        "rhythm": {
-            "type": "sinus|afib|aflutter|junctional|paced|ventricular|unknown",
-            "regularity": "regular|irregular|irregularly_irregular",
-            "p_wave_status": "present_normal|absent|inverted|bifid|peaked|variable",
-            "av_relationship": "1:1|variable|dissociated|wenckebach|2:1_block",
-            "rate_bpm": 75,
-            "rate_category": "normal|bradycardia|tachycardia"
-        },
-        "conduction": {
-            "pr_interval_status": "normal|prolonged|short|progressive_prolongation|absent",
-            "pr_interval_ms": 160,
-            "qrs_width_status": "narrow|borderline|wide",
-            "qrs_duration_ms": 95,
-            "bundle_branch_pattern": "none|lbbb|rbbb|ivcd|wpw_delta",
-            "axis_deviation": "normal|left|right|extreme_right|indeterminate"
-        },
-        "ischemia": {
-            "st_elevation_leads": ["V1", "V2"],
-            "st_elevation_max_mv": 0.2,
-            "st_depression_leads": [],
-            "st_morphology": "concave_up|convex|horizontal|downsloping",
-            "territory": "anterior_LAD|inferior_RCA|lateral_LCx|diffuse|none",
-            "reciprocal_changes": true,
-            "t_wave_changes": "normal|hyperacute|inverted|biphasic",
-            "pathological_q_waves": []
-        },
-        "morphology": {
-            "voltage_criteria": "normal|high_voltage_lvh|low_voltage",
-            "lvh_pattern": "none|voltage_only|with_strain",
-            "rvh_pattern": "none|suspected|definite",
-            "chamber_enlargement": "none|lae|rae|biatrial",
-            "special_patterns": []
-        },
-        "repolarization": {
-            "qtc_status": "normal|borderline|prolonged|critically_prolonged",
-            "qtc_bazett_ms": 420,
-            "t_wave_abnormalities": [],
-            "u_waves": false
-        },
-        "key_findings": ["list of the most clinically significant findings"],
-        "urgency": "STAT|urgent|routine|normal"
-    }
-}
-
-BBB RECOGNITION (critical for correct diagnosis):
-- LBBB: QRS >=120ms + V1 shows QS or rS pattern (predominantly negative) + V5/V6 shows monophasic R or broad notched R. In LBBB, ST-T changes are EXPECTED (discordant to QRS) and do NOT indicate ischemia unless Sgarbossa criteria are met.
-- RBBB: QRS >=120ms + V1 shows RSR' pattern (M-shaped, terminal R') + wide S wave in I and V6.
-- IVCD: Wide QRS that does NOT fit classic LBBB or RBBB morphology criteria.
-- When LBBB is present: ST elevation in leads with negative QRS (V1-V3) is EXPECTED and NOT STEMI. Only CONCORDANT ST changes (same direction as QRS) suggest superimposed ischemia (Sgarbossa criteria).
-
-CRITICAL RULES:
-- Base your analysis ONLY on the narrative data provided — never invent measurements
-- If a finding is ambiguous, state the uncertainty
-- Always check for reciprocal changes when ST elevation is present
-- Consider rate-related changes (tachycardia can cause ST/T changes)
-- Flag STAT findings immediately: STEMI, complete heart block, VT/VF, Brugada Type 1
-- When QRS pattern names (QS, rS, RSR', monophasic_R) are provided in the narrative, USE THEM for BBB classification
-"""
-
-    user_prompt = f"""Analyze this ECG systematically:
-
-<ecg_narrative>
-{narrative}
-</ecg_narrative>
-
-<textbook_evidence>
-{rag_evidence}
-</textbook_evidence>
-
-Extract your clinical observations following the systematic approach. Respond with JSON."""
-
-    return system_prompt, user_prompt
-
-
-def build_stage2_prompt(observations: dict, disease_context: str) -> tuple[str, str]:
-    """
-    Build the Stage 2 prompt: validate findings against disease criteria.
-
-    Returns (system_prompt, user_prompt).
-    """
-    system_prompt = """You are a cardiology attending physician reviewing a fellow's ECG interpretation.
-
-You will receive:
-1. The fellow's structured observations from the ECG
-2. Diagnostic criteria from the clinical knowledge base for relevant conditions
-
-Your task: Validate each observation against the formal diagnostic criteria. For each potential condition:
-- Does the ECG meet ALL required criteria?
-- Are any criteria partially met (suggestive but not diagnostic)?
-- Are there findings that CONTRADICT this diagnosis?
-- What is your confidence level?
-
-OUTPUT FORMAT — respond with JSON:
-{
-    "reasoning": "your attending-level reasoning, addressing each potential condition",
-    "validated_findings": [
-        {
-            "condition": "condition name (e.g., atrial_fibrillation)",
-            "criteria_met": ["list of specific criteria that ARE met"],
-            "criteria_not_met": ["list of criteria that are NOT met or cannot be assessed"],
-            "contradicting_evidence": ["any findings that argue against this diagnosis"],
-            "confidence": "HIGH|MODERATE|LOW|INSUFFICIENT",
-            "clinical_summary": "one-sentence clinical interpretation (max 15 words)",
-            "action_required": "STAT|urgent|routine|none"
-        }
-    ],
-    "differential_diagnosis": ["ordered list of conditions to consider"],
-    "overall_interpretation": "2-3 sentence summary of the ECG"
-}
-
-VALIDATION RULES:
-- A condition requires ALL its mandatory criteria to be met for HIGH confidence
-- If only some criteria are met, confidence is MODERATE or LOW
-- Contradicting evidence should LOWER confidence or EXCLUDE the diagnosis
-- STAT conditions (STEMI, complete AVB, VT, Brugada Type 1) must be flagged even at LOW confidence
-- Apply clinical suppression rules:
-  * WPW → suppress LBBB, LVH
-  * LBBB → use Sgarbossa for STEMI, suppress QTc
-  * AFib → suppress P-wave findings
-  * BBB → expected ST-T discordance is NOT ischemia
-"""
-
-    user_prompt = f"""Review the fellow's ECG observations and validate against diagnostic criteria:
-
-<fellow_observations>
-{json.dumps(observations, indent=2)}
-</fellow_observations>
-
-<diagnostic_criteria>
-{disease_context}
-</diagnostic_criteria>
-
-Validate each finding. Respond with JSON."""
-
-    return system_prompt, user_prompt
-
-
-def select_disease_files(observations: dict) -> list[str]:
-    """
-    Based on Stage 1 observations, select which disease KB files are relevant.
-    Returns list of filenames to load.
-    """
+def select_disease_files_from_narration(narrative: str) -> list[str]:
+    """Scan narration text for keywords and return matching disease files."""
     files = set()
+    lower = narrative.lower()
 
-    obs = observations if isinstance(observations, dict) else {}
+    for keyword, disease_files in NARRATION_TO_DISEASE_FILES.items():
+        if keyword in lower:
+            files.update(disease_files)
 
-    # Rhythm
-    rhythm = obs.get("rhythm", {})
-    rhythm_type = rhythm.get("type", "")
-    if rhythm_type == "afib":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("afib", []))
-    elif rhythm_type == "aflutter":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("aflutter", []))
-    if rhythm.get("regularity") == "irregularly_irregular":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("irregular", []))
-    if rhythm.get("p_wave_status") == "absent":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("absent_p", []))
-    rate_cat = rhythm.get("rate_category", "")
-    if rate_cat == "bradycardia":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("bradycardia", []))
-    elif rate_cat == "tachycardia":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("tachycardia", []))
-
-    # Conduction
-    cond = obs.get("conduction", {})
-    pr_status = cond.get("pr_interval_status", "")
-    if pr_status == "prolonged":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("prolonged_pr", []))
-    elif pr_status == "short":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("short_pr", []))
-    elif pr_status == "progressive_prolongation":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("dropped_beat", []))
-    qrs_status = cond.get("qrs_width_status", "")
-    if qrs_status == "wide":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("wide_qrs", []))
-    bbb = cond.get("bundle_branch_pattern", "")
-    if "lbbb" in bbb:
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("lbbb_pattern", []))
-    if "rbbb" in bbb:
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("rbbb_pattern", []))
-    axis = cond.get("axis_deviation", "")
-    if axis == "left":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("left_axis", []))
-    elif axis == "right":
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("right_axis", []))
-
-    # Ischemia
-    isch = obs.get("ischemia", {})
-    if isch.get("st_elevation_leads"):
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("st_elevation", []))
-    if isch.get("st_depression_leads"):
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("st_depression", []))
-    t_changes = isch.get("t_wave_changes", "")
-    if "inverted" in str(t_changes):
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("t_inversion", []))
-    if "hyperacute" in str(t_changes):
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("hyperacute_t", []))
-    if isch.get("pathological_q_waves"):
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("pathological_q", []))
-
-    # Morphology
-    morph = obs.get("morphology", {})
-    voltage = morph.get("voltage_criteria", "")
-    if "high" in voltage or "lvh" in str(morph.get("lvh_pattern", "")):
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("tall_voltage", []))
-    if "low" in voltage:
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("low_voltage", []))
-
-    # Repolarization
-    repol = obs.get("repolarization", {})
-    if repol.get("qtc_status") in ("prolonged", "critically_prolonged"):
-        files.update(OBSERVATION_TO_DISEASE_FILES.get("long_qt", []))
-
-    # Always include normal reference for context
+    # Always include normal reference
     files.add("normal_ecg_reference.md")
-
     return sorted(files)
 
 
-def load_disease_context(filenames: list[str], max_chars: int = 8000) -> str:
-    """Load disease KB files and truncate to fit token budget."""
+def _safety_net_files(narrative: str, features) -> set[str]:
+    """
+    Force-load disease files based on pipeline features.
+
+    Features are computed from the signal (ground truth), not from LLM
+    interpretation. This catches things the narration keyword scan may miss.
+    """
+    extra = set()
+    lower = narrative.lower()
+
+    for rule in SAFETY_NET_RULES:
+        trigger = rule.get("trigger", "")
+        rule_files = rule.get("files", [])
+
+        if trigger in ("features", "both") and features is not None:
+            field = rule.get("feature_field")
+            conditions = rule.get("conditions")
+            requires_lvh = rule.get("requires_lvh", False)
+
+            if field and hasattr(features, field):
+                val = getattr(features, field)
+                check_leads = rule.get("check_leads")
+                values = rule.get("values")
+
+                if check_leads and isinstance(val, dict):
+                    if any(val.get(l) for l in check_leads):
+                        extra.update(rule_files)
+                elif values and val in values:
+                    extra.update(rule_files)
+
+            if conditions:
+                for cond in conditions:
+                    f = cond.get("field")
+                    if f and hasattr(features, f):
+                        fval = getattr(features, f)
+                        if fval is not None:
+                            op = cond.get("op", ">=")
+                            threshold = cond.get("value", 0)
+                            if op == ">=" and fval >= threshold:
+                                extra.update(rule_files)
+                            elif op == ">" and fval > threshold:
+                                extra.update(rule_files)
+
+            if requires_lvh:
+                lvh_met = getattr(features, "lvh_criteria_met", [])
+                if lvh_met:
+                    dep_leads = rule.get("st_depression_leads", [])
+                    dep_thresh = rule.get("st_depression_threshold_mv", 0.05)
+                    st_dep = getattr(features, "st_depression_mv", {})
+                    if any((st_dep.get(l) or 0) > dep_thresh for l in dep_leads):
+                        extra.update(rule_files)
+
+        if trigger in ("narration", "both"):
+            patterns = rule.get("narration_patterns", [])
+            if patterns and any(p in lower for p in patterns):
+                extra.update(rule_files)
+
+    return extra
+
+
+# ---------------------------------------------------------------------------
+# Disease context loading
+# ---------------------------------------------------------------------------
+
+def load_disease_context(filenames: list[str], max_chars: int = None) -> str:
+    """Load disease KB files, extract relevant sections, fit within budget."""
+    if max_chars is None:
+        max_chars = EXTRACTION_SETTINGS["max_total_chars"]
+    per_file = EXTRACTION_SETTINGS["max_per_file_chars"]
+
     sections = []
     total_chars = 0
 
@@ -335,9 +127,7 @@ def load_disease_context(filenames: list[str], max_chars: int = 8000) -> str:
         if not fpath.exists():
             continue
         content = fpath.read_text()
-        # Extract key sections (criteria + lead-by-lead + key discriminators)
-        # Truncate each file to ~2000 chars to stay within budget
-        truncated = _extract_key_sections(content, max_chars=2000)
+        truncated = _extract_key_sections(content, max_chars=per_file)
         if total_chars + len(truncated) > max_chars:
             break
         sections.append(f"=== {fname.replace('.md', '').upper()} ===\n{truncated}")
@@ -346,20 +136,16 @@ def load_disease_context(filenames: list[str], max_chars: int = 8000) -> str:
     return "\n\n".join(sections)
 
 
-def _extract_key_sections(content: str, max_chars: int = 2000) -> str:
-    """Extract the most diagnostic-relevant sections from a disease KB file."""
+def _extract_key_sections(content: str, max_chars: int = None) -> str:
+    """Extract diagnostically relevant sections from a disease KB file."""
+    if max_chars is None:
+        max_chars = EXTRACTION_SETTINGS["max_per_file_chars"]
+    relevant_headers = EXTRACTION_SETTINGS["relevant_headers"]
+
     lines = content.split("\n")
     relevant_sections = []
     current_section = []
     in_relevant = False
-
-    # Keywords indicating diagnostically relevant sections
-    relevant_headers = [
-        "diagnostic criteria", "criteria", "lead-by-lead",
-        "key discriminator", "mandatory", "required",
-        "distinguishing", "differential", "clinical significance",
-        "ecg presentation", "hallmark", "pathognomonic",
-    ]
 
     for line in lines:
         if line.startswith("#"):
@@ -373,13 +159,291 @@ def _extract_key_sections(content: str, max_chars: int = 2000) -> str:
     if current_section and in_relevant:
         relevant_sections.extend(current_section)
 
-    # If no relevant sections found, take the first max_chars
     if not relevant_sections:
         return content[:max_chars]
 
     result = "\n".join(relevant_sections)
     return result[:max_chars]
 
+
+# ---------------------------------------------------------------------------
+# Build pipeline measurements summary from features object
+# ---------------------------------------------------------------------------
+
+def _build_measurements_block(features) -> str:
+    """Extract key computed measurements from the features object.
+
+    v2 (2026-05-15) — adds explicit clinical-finding callouts beneath every
+    threshold-crossing raw measurement. Reasoners were reading raw HR/QTc/PR
+    numbers and estimating "normal" in their narratives; the v2 callouts
+    anchor each threshold-crossing finding to a clear `→ FINDING` line.
+    """
+    if features is None:
+        return "No pipeline measurements available."
+
+    lines = []
+
+    # Rate & rhythm
+    hr = getattr(features, "heart_rate_ventricular_bpm", None)
+    if hr is not None:
+        lines.append("Heart rate: %.1f bpm" % hr)
+        if hr < 60:
+            lines.append("  → BRADYCARDIA (HR < 60 bpm) — commit sinus_bradycardia if rhythm is sinus")
+        elif hr > 100:
+            lines.append("  → TACHYCARDIA (HR > 100 bpm) — commit sinus_tachycardia if rhythm is sinus")
+    rhythm = getattr(features, "dominant_rhythm", None)
+    rhythm_reg = getattr(features, "rhythm_regular", True)
+    if rhythm:
+        reg = "regular" if rhythm_reg else "irregular"
+        lines.append("Rhythm: %s (%s)" % (rhythm, reg))
+    # v2 callout: rhythm-irregularity-based AFib pattern.
+    # Use truthiness (`not rhythm_reg`) so this fires whether the field is False,
+    # None, or 0 — same convention as the "Rhythm:" line above.
+    # Use SDNN (RR-interval standard deviation) as a quantitative pattern strength
+    # signal; SDNN > 100 ms strongly suggests AFib (normal sinus rhythm SDNN ≤ 50 ms).
+    sdnn = getattr(features, "sdnn_ms", None)
+    sdnn_str = (" SDNN=%.0fms" % sdnn) if sdnn is not None else ""
+    if rhythm and not rhythm_reg:
+        rhythm_s = str(rhythm).lower()
+        if "afib" in rhythm_s:
+            lines.append("  → AFIB CONFIRMED by signal pipeline%s — commit atrial_fibrillation" % sdnn_str)
+        elif "sinus" in rhythm_s:
+            # Contradiction: true sinus is regular; "sinus (irregular)" reliably indicates
+            # AFib that the rhythm-classifier mis-labelled (audit confirmed 8/12 patients).
+            lines.append("  → IRREGULAR RHYTHM despite 'sinus' label%s — likely AFib; commit atrial_fibrillation (the rhythm-irregularity contradicts pure sinus rhythm)" % sdnn_str)
+        else:
+            lines.append("  → IRREGULAR RHYTHM%s — consider atrial_fibrillation if P-waves are absent or vary across beats" % sdnn_str)
+
+    # Intervals
+    pr = getattr(features, "pr_interval_ms", None)
+    if pr is not None:
+        lines.append("PR interval: %.0f ms" % pr)
+        if pr >= 200:
+            lines.append("  → 1°AV BLOCK (PR ≥ 200 ms) — commit first_degree_avb")
+        elif pr >= 180:
+            lines.append("  → BORDERLINE 1°AVB (PR 180–199 ms) — consider first_degree_avb if PTB-XL/SNOMED labels suggest")
+    qrs = getattr(features, "qrs_duration_global_ms", None)
+    if qrs is not None:
+        wide_tag = " (WIDE)" if qrs >= 120 else ""
+        lines.append("QRS duration: %.0f ms%s" % (qrs, wide_tag))
+        if 110 <= qrs < 120:
+            lines.append("  → BORDERLINE WIDE QRS (110–119 ms) — consider incomplete BBB / IVCD")
+    qtc = getattr(features, "qtc_bazett_ms", None)
+    if qtc is not None:
+        lines.append("QTc (Bazett): %.0f ms" % qtc)
+        if qtc > 460:
+            lines.append("  → LONG QT (QTc > 460 ms) — commit long_qt_interval")
+        elif qtc >= 440:
+            lines.append("  → BORDERLINE LONG QT (QTc 440–460 ms)")
+
+    # P-wave
+    p_dur = getattr(features, "p_duration_ms", None)
+    if p_dur is not None:
+        lines.append("P-wave duration: %.0f ms%s" % (p_dur, " (PROLONGED >=120)" if p_dur >= 120 else ""))
+    ptf = getattr(features, "p_terminal_force_v1_mv_s", None)
+    if ptf is not None:
+        lines.append("P-terminal force V1: %.3f mV*s%s" % (ptf, " (>=0.04 = LAE)" if ptf >= 0.04 else ""))
+
+    # Axes
+    qrs_axis_for_rule = None
+    for name, field in [("QRS axis", "qrs_axis_deg"), ("P axis", "p_axis_deg"), ("T axis", "t_axis_deg")]:
+        val = getattr(features, field, None)
+        if val is not None:
+            lines.append("%s: %.0f degrees" % (name, val))
+            if field == "qrs_axis_deg":
+                qrs_axis_for_rule = val
+                # Axis-based callouts
+                if val > 90:
+                    lines.append("  → RIGHT AXIS DEVIATION (QRS axis > +90°)")
+                elif val < -30:
+                    lines.append("  → LEFT AXIS DEVIATION (QRS axis < -30°) — consider LAFB / inferior MI / LVH")
+
+    # Algorithm flags
+    flags = []
+    for flag in ["lbbb", "rbbb", "lafb", "lpfb", "wpw_pattern"]:
+        if getattr(features, flag, False):
+            flags.append(flag.upper())
+    if flags:
+        lines.append("Algorithm conduction flags: %s" % ", ".join(flags))
+        # v2 callouts — each conduction-flag MUST be committed even if others co-exist.
+        if "LAFB" in flags:
+            qrs_axis = getattr(features, "qrs_axis_deg", None)
+            ax_str = (" (axis = %.0f°)" % qrs_axis) if qrs_axis is not None else ""
+            lines.append("  → LAFB%s — commit left_anterior_fascicular_block (co-exists with LBBB/RBBB/AVB)" % ax_str)
+        if "RBBB" in flags:
+            lines.append("  → RBBB — commit right_bundle_branch_block")
+        if "LBBB" in flags:
+            lines.append("  → LBBB — commit left_bundle_branch_block")
+        if "LPFB" in flags:
+            lines.append("  → LPFB — commit left_posterior_fascicular_block")
+        if "WPW_PATTERN" in flags:
+            lines.append("  → WPW pattern — commit wpw")
+    # v2: IRBBB derived flag (signal sets RBBB only at QRS>=120; partial RBBB
+    # cases at 110-119 ms with rSR' aren't currently flagged).
+    qrs_val = getattr(features, "qrs_duration_global_ms", None)
+    if (qrs_val is not None and 110 <= qrs_val < 120
+            and "RBBB" not in flags and "LBBB" not in flags):
+        # rSR' pattern hint via R/S amplitudes in V1
+        r_amp_v1 = (getattr(features, "r_amplitude_mv", {}) or {}).get("V1")
+        s_amp_v1 = (getattr(features, "s_amplitude_mv", {}) or {}).get("V1")
+        if r_amp_v1 is not None and s_amp_v1 is not None and r_amp_v1 > 0.1:
+            lines.append("  → POSSIBLE INCOMPLETE RBBB (QRS %.0f ms, V1 R=%.2f S=%.2f) — consider incomplete_rbbb"
+                         % (qrs_val, r_amp_v1, s_amp_v1))
+
+    # LVH
+    lvh = getattr(features, "lvh_criteria_met", [])
+    if lvh:
+        lines.append("LVH criteria met: %s" % ", ".join(lvh))
+        lines.append("  → LVH — commit left_ventricular_hypertrophy (any single LVH criterion is sufficient; do NOT require multi-criterion agreement)")
+    sokolow = getattr(features, "lvh_sokolow_lyon_mv", None)
+    if sokolow is not None:
+        crit = " (>=3.5 = LVH)" if sokolow >= 3.5 else ""
+        lines.append("Sokolow-Lyon: %.2f mV%s" % (sokolow, crit))
+        if sokolow >= 3.5 and not lvh:
+            lines.append("  → LVH (Sokolow-Lyon ≥ 3.5 mV) — commit left_ventricular_hypertrophy")
+    cornell = getattr(features, "lvh_cornell_mv", None)
+    if cornell is not None:
+        lines.append("Cornell voltage: %.2f mV" % cornell)
+        if cornell > 2.8 and not lvh:
+            lines.append("  → LVH (Cornell > 2.8 mV) — commit left_ventricular_hypertrophy")
+
+    # Pathological Q-waves
+    path_q = getattr(features, "pathological_q_wave", {})
+    q_leads = [l for l, v in path_q.items() if v]
+    if q_leads:
+        lines.append("PATHOLOGICAL Q-WAVES (from signal): %s" % ", ".join(q_leads))
+
+    # R-wave progression
+    r_prog = getattr(features, "r_progression", None)
+    if r_prog and r_prog != "normal":
+        lines.append("R-wave progression: %s" % r_prog.upper())
+
+    # Per-lead ST elevation/depression
+    st_elev = getattr(features, "st_elevation_mv", {}) or {}
+    elev_leads = {l: v for l, v in st_elev.items() if v is not None and v > 0.05}
+    if elev_leads:
+        lines.append("ST elevation: %s" % ", ".join("%s=%.2fmV" % (l, v) for l, v in sorted(elev_leads.items())))
+        # v2 territory rollups — STEMI commit rule: ≥0.1 mV in ≥2 leads of a territory
+        # (≥0.2 mV in V2/V3 per ESC/AHA), and acute STEMI does NOT require Q-waves.
+        inferior = ["II", "III", "aVF"]
+        anterior = ["V1", "V2", "V3", "V4"]
+        lateral = ["I", "aVL", "V5", "V6"]
+        def _territory_hit(leads, lead_thr):
+            hits = [(l, elev_leads[l]) for l in leads if l in elev_leads and elev_leads[l] >= lead_thr.get(l, 0.10)]
+            return hits
+        for name, terr in [("INFERIOR", inferior), ("LATERAL", lateral)]:
+            hits = _territory_hit(terr, {l: 0.10 for l in terr})
+            if len(hits) >= 2:
+                lines.append("  → %s ST ELEVATION (%s) — commit %s_stemi (acute STEMI does NOT require Q-waves)"
+                             % (name, ", ".join("%s=%.2fmV" % (l, v) for l, v in hits), name.lower()))
+        ant_thr = {"V1": 0.10, "V2": 0.20, "V3": 0.20, "V4": 0.10}
+        ant_hits = _territory_hit(anterior, ant_thr)
+        if len(ant_hits) >= 2:
+            lines.append("  → ANTERIOR ST ELEVATION (%s) — commit anterior_stemi (acute STEMI does NOT require Q-waves)"
+                         % ", ".join("%s=%.2fmV" % (l, v) for l, v in ant_hits))
+
+    st_dep = getattr(features, "st_depression_mv", {}) or {}
+    dep_leads = {l: v for l, v in st_dep.items() if v is not None and v > 0.05}
+    if dep_leads:
+        lines.append("ST depression: %s" % ", ".join("%s=%.2fmV" % (l, v) for l, v in sorted(dep_leads.items())))
+        # v2 — multi-lead ST depression callout. If ≥2 leads with ≥0.05 mV depression
+        # AND no LBBB context, this is ischemia/strain (dual-interpret in LBBB context).
+        if len(dep_leads) >= 2:
+            has_lbbb = "LBBB" in flags
+            note = " (in LBBB context — dual-interpret: secondary OR primary ischemia/strain)" if has_lbbb else ""
+            lines.append("  → MULTI-LEAD ST DEPRESSION%s — consider ischemia / strain" % note)
+
+    # Per-lead R and S amplitudes (for voltage criteria)
+    r_amp = getattr(features, "r_amplitude_mv", {})
+    s_amp = getattr(features, "s_amplitude_mv", {})
+    voltage_leads = []
+    for lead in ["V1", "V2", "V3", "V4", "V5", "V6", "I", "aVL"]:
+        r = r_amp.get(lead)
+        s = s_amp.get(lead)
+        if r is not None or s is not None:
+            parts = []
+            if r is not None:
+                parts.append("R=%.2f" % r)
+            if s is not None:
+                parts.append("S=%.2f" % s)
+            voltage_leads.append("%s(%s)" % (lead, ",".join(parts)))
+    if voltage_leads:
+        lines.append("Amplitudes (mV): %s" % " | ".join(voltage_leads))
+        # v2 RVH derived rule. Classical RVH criteria: tall R in V1 with R/S > 1
+        # AND deep S in V5/V6 (R/S in V5 or V6 < 1) AND right axis deviation (>+90°).
+        r_v1 = (r_amp or {}).get("V1")
+        s_v1 = (s_amp or {}).get("V1")
+        r_v5 = (r_amp or {}).get("V5")
+        s_v5 = (s_amp or {}).get("V5")
+        r_v6 = (r_amp or {}).get("V6")
+        s_v6 = (s_amp or {}).get("V6")
+        if r_v1 is not None and s_v1 is not None and r_v1 > 0 and s_v1 > 0:
+            v1_rs = r_v1 / s_v1
+            tall_r_v1 = v1_rs > 1.0
+            deep_s_lateral = False
+            if r_v5 is not None and s_v5 is not None and s_v5 > 0 and (r_v5 / max(s_v5, 0.01)) < 1.0:
+                deep_s_lateral = True
+            if r_v6 is not None and s_v6 is not None and s_v6 > 0 and (r_v6 / max(s_v6, 0.01)) < 1.0:
+                deep_s_lateral = True
+            rad = qrs_axis_for_rule is not None and qrs_axis_for_rule > 90
+            if tall_r_v1 and (deep_s_lateral or rad):
+                lines.append("  → RVH PATTERN (V1 R/S=%.1f >1, %s) — commit right_ventricular_hypertrophy"
+                             % (v1_rs, "right axis" if rad else "deep S in lateral"))
+        # v2 LOW VOLTAGE derived rule. Limb-lead low voltage = all 6 limb leads < 0.5 mV
+        # (QRS p-p). Precordial low voltage = all 6 precordial leads < 1.0 mV.
+        def _qrs_pp(lead):
+            r = (r_amp or {}).get(lead)
+            s = (s_amp or {}).get(lead)
+            if r is None and s is None:
+                return None
+            return (r or 0.0) + (s or 0.0)
+        limb_pp = {l: _qrs_pp(l) for l in ("I", "II", "III", "aVR", "aVL", "aVF")}
+        prec_pp = {l: _qrs_pp(l) for l in ("V1", "V2", "V3", "V4", "V5", "V6")}
+        limb_known = {k: v for k, v in limb_pp.items() if v is not None}
+        prec_known = {k: v for k, v in prec_pp.items() if v is not None}
+        limb_low = bool(limb_known) and all(v < 0.5 for v in limb_known.values())
+        prec_low = bool(prec_known) and all(v < 1.0 for v in prec_known.values())
+        if limb_low and prec_low:
+            lines.append("  → LOW VOLTAGE (limb AND precordial leads all sub-threshold) — commit low_voltage")
+        elif limb_low:
+            lines.append("  → LIMB-LEAD LOW VOLTAGE (all limb QRS p-p < 0.5 mV) — commit low_voltage")
+        elif prec_low and len(prec_known) >= 4:
+            lines.append("  → PRECORDIAL LOW VOLTAGE (all precordial QRS p-p < 1.0 mV) — commit low_voltage")
+
+    # Q-wave durations
+    q_dur = getattr(features, "q_duration_ms", {})
+    q_amp_dict = getattr(features, "q_amplitude_mv", {})
+    q_details = []
+    for lead in ["V1", "V2", "V3", "V4", "I", "aVL", "II", "III", "aVF"]:
+        qd = q_dur.get(lead)
+        qa = q_amp_dict.get(lead)
+        if qd is not None and qd > 10:
+            q_details.append("%s: q=%sms%s" % (lead, round(qd), "/%.2fmV" % qa if qa else ""))
+    if q_details:
+        lines.append("Q-wave details: %s" % " | ".join(q_details))
+
+    # Beat summary — PVC, PAC, ectopics
+    beat_sum = getattr(features, "beat_summary", None)
+    if beat_sum is not None:
+        counts = getattr(beat_sum, "beat_class_counts", {})
+        if counts:
+            lines.append("Beat classes: %s" % ", ".join("%s=%d" % (k, v) for k, v in counts.items() if v > 0))
+        pvc_count = counts.get("pvc", 0)
+        pac_count = counts.get("pac", 0)
+        if pvc_count > 0:
+            lines.append("PVC BEATS DETECTED: %d" % pvc_count)
+        if pac_count > 0:
+            lines.append("PAC BEATS DETECTED: %d" % pac_count)
+        pattern = getattr(beat_sum, "beat_pattern", None)
+        if pattern:
+            lines.append("Beat pattern: %s" % pattern)
+
+    return "\n".join(lines) if lines else "No measurements available."
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 async def run_two_stage_diagnosis(
     narrative: str,
@@ -388,107 +452,82 @@ async def run_two_stage_diagnosis(
     call_agent_fn=None,
 ) -> dict:
     """
-    Run the two-stage RAG diagnostic pipeline.
+    Run the single-stage RAG diagnostic pipeline.
 
-    Stage 1: Narrative + textbook RAG → extract observations
-    Stage 2: Observations + disease KB → validate findings
-
-    Returns dict with stage1_observations, stage2_validated, cost info.
+    Despite the legacy name (kept for backward compatibility with dashboard.py),
+    this is now a single LLM call: narration + measurements + disease criteria → diagnoses.
     """
     from agents.deepseek import call_agent, extract_json
     _call = call_agent_fn or call_agent
 
-    ecg_id = features.ecg_id if hasattr(features, 'ecg_id') else "unknown"
+    ecg_id = features.ecg_id if hasattr(features, "ecg_id") else "unknown"
 
-    # --- Stage 1: Get textbook evidence via RAG ---
-    rag_evidence = ""
-    if rag_store is not None:
-        try:
-            from rag.embedding import embed_query
-            from rag.retrieval import retrieve, format_rag_block
-            # Query based on narrative key terms
-            query = _build_rag_query_from_narrative(narrative)
-            results = retrieve(query, rag_store, top_k=4)
-            rag_evidence = format_rag_block(results)
-        except Exception:
-            pass
+    # 1. Select disease files from narration keywords
+    narration_files = select_disease_files_from_narration(narrative)
 
-    # --- Stage 1: Extract observations ---
-    s1_system, s1_user = build_stage1_prompt(narrative, rag_evidence)
-    s1_raw = await _call(
-        system_prompt=s1_system,
-        user_prompt=s1_user,
-        agent_name="STAGE1_OBSERVER",
+    # 2. Add safety-net files from features
+    safety_files = _safety_net_files(narrative, features)
+    all_files = sorted(set(narration_files) | safety_files)
+
+    # 3. Load disease context
+    disease_context = load_disease_context(all_files)
+
+    # 4. Build measurements block from features
+    measurements = _build_measurements_block(features)
+
+    # 5. Build prompt
+    user_prompt = REASONER_USER_TEMPLATE.format(
+        narrative=narrative,
+        measurements=measurements,
+        disease_context=disease_context,
+    )
+
+    # 6. Call LLM
+    raw = await _call(
+        system_prompt=REASONER_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        agent_name="ECG_REASONER",
         ecg_id=ecg_id,
     )
 
-    s1_content = s1_raw.get("content", "")
-    observations = extract_json(s1_content)
-    if observations is None:
-        observations = {"error": "Failed to parse Stage 1 output", "raw": s1_content[:500]}
+    content = raw.get("content", "")
+    result = extract_json(content)
+    if result is None:
+        result = {"error": "Failed to parse output", "raw": content[:1000]}
 
-    # Extract the observations sub-dict
-    obs_data = observations.get("observations", observations)
-
-    # --- Stage 2: Select disease files based on observations ---
-    disease_files = select_disease_files(obs_data)
-    disease_context = load_disease_context(disease_files)
-
-    # --- Stage 2: Validate against disease criteria ---
-    s2_system, s2_user = build_stage2_prompt(obs_data, disease_context)
-    s2_raw = await _call(
-        system_prompt=s2_system,
-        user_prompt=s2_user,
-        agent_name="STAGE2_VALIDATOR",
-        ecg_id=ecg_id,
-    )
-
-    s2_content = s2_raw.get("content", "")
-    validated = extract_json(s2_content)
-    if validated is None:
-        validated = {"error": "Failed to parse Stage 2 output", "raw": s2_content[:500]}
-
+    # Format for backward compat with dashboard
     return {
-        "stage1_observations": obs_data,
-        "stage1_reasoning": observations.get("reasoning", ""),
-        "stage2_validated": validated,
-        "disease_files_consulted": disease_files,
-        "rag_evidence_used": bool(rag_evidence),
+        "stage1_observations": result.get("diagnoses", []),
+        "stage2_validated": result,
+        "disease_files_consulted": all_files,
+        "measurements_provided": measurements,
+        "rag_evidence_used": bool(disease_context),
         "cost": {
-            "stage1_tokens": s1_raw.get("usage", {}),
-            "stage2_tokens": s2_raw.get("usage", {}),
-            "stage1_latency": s1_raw.get("latency_sec", 0),
-            "stage2_latency": s2_raw.get("latency_sec", 0),
+            "stage1_tokens": raw.get("usage", {}),
+            "stage2_tokens": {},
+            "stage1_latency": raw.get("latency_sec", 0),
+            "stage2_latency": 0,
         },
     }
 
 
-def _build_rag_query_from_narrative(narrative: str) -> str:
-    """Extract key clinical terms from narrative for RAG query."""
-    # Look for clinically significant keywords
-    keywords = []
-    lower = narrative.lower()
+# ---------------------------------------------------------------------------
+# Legacy helpers kept for dashboard backward compatibility
+# ---------------------------------------------------------------------------
 
-    if "st elevated" in lower or "st elevation" in lower:
-        keywords.append("ST elevation STEMI criteria")
-    if "st depressed" in lower or "st depression" in lower:
-        keywords.append("ST depression ischemia")
-    if "p-wave absent" in lower:
-        keywords.append("absent P waves atrial fibrillation")
-    if "wide" in lower and "qrs" in lower:
-        keywords.append("wide QRS bundle branch block")
-    if "inverted" in lower and "t-wave" in lower:
-        keywords.append("T wave inversion differential diagnosis")
-    if "hyperacute" in lower:
-        keywords.append("hyperacute T waves acute MI")
-    if "irregular" in lower:
-        keywords.append("irregular rhythm differential")
-    if "prolonged" in lower and "pr" in lower:
-        keywords.append("prolonged PR interval AV block")
-    if "prolonged" in lower and "qt" in lower:
-        keywords.append("prolonged QT interval")
+def build_stage1_prompt(narrative, rag_evidence=""):
+    """Legacy wrapper."""
+    return REASONER_SYSTEM_PROMPT, REASONER_USER_TEMPLATE.format(
+        narrative=narrative, measurements="", disease_context=rag_evidence,
+    )
 
-    if not keywords:
-        keywords.append("ECG interpretation systematic approach")
+def build_stage2_prompt(observations, disease_context):
+    """Legacy wrapper — unused in single-stage."""
+    return REASONER_SYSTEM_PROMPT, json.dumps(observations)
 
-    return " ".join(keywords[:3])
+def select_disease_files(observations):
+    """Legacy wrapper."""
+    return select_disease_files_from_narration(json.dumps(observations) if isinstance(observations, dict) else str(observations))
+
+# Expose for external use
+_narration_based_disease_files = _safety_net_files

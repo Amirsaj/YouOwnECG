@@ -24,8 +24,9 @@ WANDER_BAND_LOW_HZ = 0.05
 WANDER_BAND_HIGH_HZ = 0.5
 WANDER_POWER_THRESHOLD = 0.15
 
-# Safe window: exclude 3 seconds from each end to eliminate filtfilt edge transients
-EDGE_MARGIN_SEC = 3.0
+# Safe window: exclude edge region to reduce filtfilt edge transients.
+# 0.85s is sufficient for the 0.5-40Hz bandpass (order 4 Butterworth) to settle.
+EDGE_MARGIN_SEC = 0.85
 
 
 def preprocess(record: RawECGRecord) -> PreprocessedECGRecord:

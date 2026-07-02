@@ -71,12 +71,19 @@ _PASS_POINTS = {
     "t":   ["ton", "tpeak", "toff"],
 }
 
-# Colors for fiducial markers on the zoomed strip
+# Colors for fiducial markers — every point gets its own distinct color
 _MARKER_COLORS = {
-    "pon": "#3498DB", "ppeak": "#3498DB", "poff": "#3498DB",
-    "qrson": "#E74C3C", "q": "#7F8C8D", "r": "#E74C3C",
-    "s": "#E67E22", "qrsoff": "#F1C40F",
-    "ton": "#9B59B6", "tpeak": "#9B59B6", "toff": "#9B59B6",
+    "pon":    "#1565C0",   # deep blue
+    "ppeak":  "#29B6F6",   # light blue
+    "poff":   "#006064",   # teal
+    "qrson":  "#B71C1C",   # dark red
+    "q":      "#7F8C8D",   # grey
+    "r":      "#E74C3C",   # bright red
+    "s":      "#E67E22",   # orange
+    "qrsoff": "#F9A825",   # amber
+    "ton":    "#6A1B9A",   # deep purple
+    "tpeak":  "#AB47BC",   # medium purple
+    "toff":   "#26A69A",   # green-teal
 }
 
 # ── LangGraph state ────────────────────────────────────────────────────────────
@@ -428,6 +435,195 @@ def render_all_leads_segment_strip(
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     buf = io.BytesIO()
     plt.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+
+def render_single_lead_segment_strip(
+    record, fid: FiducialTable, beat_idx: int, segment: str, lead: str
+) -> Optional[bytes]:
+    """
+    Render ONE lead as a proper ECG paper strip for Gemma.
+
+    Layout:
+      - Speed: 25 mm/s → 1 large box = 200 ms, 1 small box = 40 ms
+      - Gain:  10 mm/mV → 1 large box = 0.5 mV, 1 small box = 0.1 mV
+      - Grid: light pink minor (small boxes), pink major (large boxes)
+      - Signal: uses preprocessed (bandpass-filtered) signal
+      - Context (outside target segment): dashed grey line
+      - Target segment: solid red line
+      - Fiducial labels: horizontal text, staggered above/below to avoid overlap
+      - Y-label: horizontal (rotation=0), placed as text annotation
+
+    Returns PNG bytes or None on failure.
+    """
+    import io
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as ticker
+
+    if lead not in fid.fpt or lead not in record.lead_names:
+        return None
+
+    lead_fpt = fid.fpt[lead]
+    if beat_idx >= len(lead_fpt):
+        return None
+    lead_row = lead_fpt[beat_idx]
+    fs = fid.fs
+
+    lead_r = int(lead_row[COL_R])
+    if lead_r < 0:
+        return None
+    half_win = int(0.4 * fs)
+    lead_win_start = max(0, lead_r - half_win)
+
+    # Reference row from II (for segment boundary estimation)
+    ref_lead = "II" if "II" in fid.fpt else list(fid.fpt.keys())[0]
+    ref_row  = fid.fpt[ref_lead][beat_idx]
+
+    def s2ms_ref(col):
+        v = int(ref_row[col])
+        ref_r  = int(ref_row[COL_R])
+        ref_ws = max(0, ref_r - half_win)
+        return (v - ref_ws) / fs * 1000 if v >= 0 else None
+
+    r_ms      = s2ms_ref(COL_R)     or 400.0
+    qrson_ms  = s2ms_ref(COL_QRSON) or (r_ms - 40)
+    qrsoff_ms = s2ms_ref(COL_QRSOFF) or (r_ms + 60)
+    pon_ms    = s2ms_ref(COL_PON)   or (qrson_ms - 120)
+    poff_ms   = s2ms_ref(COL_POFF)  or (qrson_ms - 20)
+    toff_ms   = s2ms_ref(COL_TOFF)  or (qrsoff_ms + 220)
+
+    # Time window: full beat with context on both sides
+    t_start = max(0.0, pon_ms - 60)
+    t_end   = toff_ms + 60
+
+    _seg_red = {
+        "p":   (max(0.0, pon_ms - 20), poff_ms + 10),
+        "qrs": (max(0.0, qrson_ms - 20), qrsoff_ms + 20),
+        "t":   (max(0.0, qrsoff_ms - 10), toff_ms + 30),
+    }
+    red_start, red_end = _seg_red[segment]
+    seg_labels = {"p": "P-WAVE", "qrs": "QRS COMPLEX", "t": "ST–T WAVE"}
+    seg_points = _PASS_POINTS[segment]
+
+    # Use preprocessed (bandpass-filtered) signal — cleaner baseline for VLM reading
+    safe_start = fid.safe_window_start_sample
+    li = record.lead_names.index(lead)
+    sig_all = record.preprocessed_signal[li].astype(float)   # µV
+
+    i0  = max(0, lead_win_start + round(t_start * fs / 1000))
+    i1  = min(len(sig_all) - safe_start, lead_win_start + round(t_end * fs / 1000))
+    sig = sig_all[safe_start + i0: safe_start + i1]          # µV
+    if len(sig) == 0:
+        return None
+    t_ms = np.arange(len(sig)) / fs * 1000 + t_start
+
+    # Figure sizing based on ECG paper proportions
+    duration_ms    = t_end - t_start
+    duration_boxes = duration_ms / 200.0
+    sig_range_uv   = max(float(np.max(sig) - np.min(sig)), 500.0)
+    amplitude_boxes = (sig_range_uv + 500) / 500.0   # 0.5mV = 500µV per large box
+
+    fig_w = max(7.0, duration_boxes * 2.0)
+    fig_h = max(3.0, amplitude_boxes * 0.85)
+
+    fig, ax = plt.subplots(1, 1, figsize=(fig_w, fig_h))
+    fig.patch.set_facecolor("#FFFBF8")
+    ax.set_facecolor("#FFFBF8")
+
+    # Signal rendering:
+    #   context (before + after target): solid black line
+    #   target segment: solid red line
+    #   horizontal dashed black line at baseline level spanning red_start → red_end
+    before_mask = t_ms < red_start
+    target_mask = (t_ms >= red_start) & (t_ms <= red_end)
+    after_mask  = t_ms > red_end
+    if before_mask.any():
+        ax.plot(t_ms[before_mask], sig[before_mask],
+                color="#111111", lw=1.5, solid_capstyle="round", zorder=3)
+    if target_mask.any():
+        ax.plot(t_ms[target_mask], sig[target_mask],
+                color="#D32F2F", lw=2.2, solid_capstyle="round", zorder=4)
+    if after_mask.any():
+        ax.plot(t_ms[after_mask], sig[after_mask],
+                color="#111111", lw=1.5, solid_capstyle="round", zorder=3)
+
+    # Baseline
+    qrson_v = int(lead_row[COL_QRSON])
+    if qrson_v >= 0:
+        bl_end   = safe_start + qrson_v
+        bl_start = max(0, bl_end - int(0.03 * fs))
+        baseline_uv = float(np.median(sig_all[bl_start:bl_end]))
+    else:
+        baseline_uv = float(np.median(sig[:max(1, int(0.01 * fs))]))
+
+    # Horizontal dashed black line spanning exactly red_start → red_end at baseline
+    ax.plot([red_start, red_end], [baseline_uv, baseline_uv],
+            color="#111111", lw=1.4, ls="--", zorder=6)
+
+    # Vertical grey dashed lines mark segment start and end
+    ax.axvline(red_start, color="#888888", lw=1.0, ls="--", alpha=0.7, zorder=5)
+    ax.axvline(red_end,   color="#888888", lw=1.0, ls="--", alpha=0.7, zorder=5)
+
+    # Fiducial markers — colored vertical lines
+    marker_data = []
+    for pt in seg_points:
+        col = _POINT_TO_COL[pt]
+        v   = int(lead_row[col])
+        if v < 0:
+            continue
+        t_pt = (v - lead_win_start) / fs * 1000
+        if not (t_start - 5 <= t_pt <= t_end + 5):
+            continue
+        sig_idx = int(np.argmin(np.abs(t_ms - t_pt)))
+        y_sig   = float(sig[sig_idx]) if sig_idx < len(sig) else baseline_uv
+        marker_data.append((t_pt, y_sig, pt))
+
+    for t_pt, y_sig, pt in marker_data:
+        color = _MARKER_COLORS.get(pt, "gray")
+        ax.axvline(t_pt, color=color, lw=1.6, ls=(0, (6, 3)), alpha=0.9, zorder=5)
+
+    # Labels: two lines in top-right corner
+    #   Line 1: (Pon, Ppeak, Poff) = (X ms, Y ms, Z ms)   — one grouped line per segment
+    #   Line 2: Peak amplitude = ±N µV
+    sig_range = float(np.max(sig) - np.min(sig)) or 500.0
+    margin_extra = max(150.0, sig_range * 0.15)
+    ax.set_ylim(float(np.min(sig)) - margin_extra, float(np.max(sig)) + margin_extra)
+    ax.set_xlim(t_start, t_end)
+
+    # No text labels in the image — fiducial values are passed in the prompt text instead.
+    # Colored vertical dashed lines are sufficient visual anchors for the model.
+
+    # ECG paper grid
+    ax.xaxis.set_minor_locator(ticker.MultipleLocator(40))
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
+    ax.yaxis.set_minor_locator(ticker.MultipleLocator(100))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(500))
+    ax.grid(which="minor", color="#F7C5C5", lw=0.4, zorder=0)
+    ax.grid(which="major", color="#E88888", lw=0.8, zorder=0)
+
+    ax.set_xlabel("Time (ms — beat window: R-peak ≈ 400 ms)", fontsize=9)
+    ax.tick_params(labelsize=8)
+    ax.set_ylabel("")
+    ax.text(
+        -0.06, 0.5, "µV",
+        transform=ax.transAxes, fontsize=9, fontweight="bold",
+        va="center", ha="center", rotation=0,
+    )
+
+    title_seg = seg_labels[segment]
+    ax.set_title(
+        f"Lead {lead}  |  Beat {beat_idx + 1}  |  {title_seg}  "
+        f"|  red=target  |  dashed baseline=segment span  |  25mm/s · 10mm/mV",
+        fontsize=9, fontweight="bold", pad=6,
+    )
+
+    fig.tight_layout(pad=1.2)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=160, bbox_inches="tight", facecolor="#FFFBF8")
     plt.close(fig)
     buf.seek(0)
     return buf.read()
@@ -812,9 +1008,9 @@ class ToolExecutor:
             baseline = self._baseline(lead)
             dt = 1.0 / self.fid.fs * 1000  # ms per sample
             diff = sig.astype(float) - baseline
-            area_total = float(np.trapz(diff, dx=dt))
-            above = float(np.trapz(np.maximum(diff, 0), dx=dt))
-            below = float(np.trapz(np.minimum(diff, 0), dx=dt))
+            area_total = float(np.trapezoid(diff, dx=dt))
+            above = float(np.trapezoid(np.maximum(diff, 0), dx=dt))
+            below = float(np.trapezoid(np.minimum(diff, 0), dx=dt))
             return {"area_mv_ms": round(area_total, 4),
                     "above_baseline_mv_ms": round(above, 4),
                     "below_baseline_mv_ms": round(below, 4),
@@ -1331,18 +1527,21 @@ _FIDUCIAL_PROMPTS = {"p": _P_SYSTEM, "qrs": _QRS_SYSTEM, "t": _T_SYSTEM}
 
 def _run_fiducial_agent(
     record, fid: FiducialTable, features, beat_idx: int,
-    segment: str, png: bytes, model: str, stream: bool = False,
+    segment: str, png: bytes, model: str, lead: str = "ALL",
+    stream: bool = False,
     logger: Optional["WorkflowLogger"] = None,
 ) -> list[dict]:
     """
-    LangGraph tool-calling loop for one segment.
-    Receives the red/black focused strip, uses math tools to correct fiducial positions.
+    LangGraph tool-calling loop for one segment, one lead.
+
+    When lead != "ALL", the image shows only that lead (single-lead ECG paper strip)
+    and the agent is instructed to correct fiducials only for that lead.
     Mutates fid in place. Returns change log.
     """
     executor = ToolExecutor(record, fid, features, beat_idx, segment)
     llm = ChatOllama(model=model, temperature=0.1)
     if logger:
-        logger.log(beat_idx, segment, "fiducial", "start", {"model": model})
+        logger.log(beat_idx, segment, "fiducial", "start", {"model": model, "lead": lead})
 
     # Build approximate time ranges from reference lead for coordinate orientation
     ref_lead = "II" if "II" in fid.fpt else list(fid.fpt.keys())[0]
@@ -1369,16 +1568,24 @@ def _run_fiducial_agent(
     }[segment]
 
     system_prompt = _FIDUCIAL_PROMPTS[segment]
+    lead_scope = (
+        f"You are correcting fiducials for lead {lead} ONLY. "
+        f"Call set_fiducial with lead=\"{lead}\" only — do NOT touch other leads."
+        if lead != "ALL"
+        else f"Correct all available leads."
+    )
     context = (
-        f"\nBeat {beat_idx + 1} | Leads: {[l for l in LEAD_ORDER if l in fid.fpt]}\n"
+        f"\nBeat {beat_idx + 1} | Active lead: {lead}\n"
         f"Confidence: {json.dumps({k: round(v, 2) for k, v in (fid.fiducial_confidence or {}).items()}, indent=0)}\n"
         f"COORDINATE SYSTEM: All times are ms from beat window start. {_coord_hint}\n"
-        f"X-axis range in image: read the tick labels to get exact ms values.\n"
+        f"X-axis range: read the tick labels exactly (ms). Y-axis: µV (microvolts).\n"
+        f"Grid: each LARGE box = 200ms × 500µV. Each SMALL box = 40ms × 100µV.\n"
+        f"{lead_scope}\n"
         f"Correct ONLY {_PASS_POINTS[segment]} markers. The RED signal is your target."
     )
     initial_content = [
         {"type": "text", "text": system_prompt + context},
-        {"type": "text", "text": f"--- ALL 12 LEADS — {segment.upper()} FOCUS (red=target, black=context) ---"},
+        {"type": "text", "text": f"--- Lead {lead} — {segment.upper()} FOCUS (ECG paper: red=target, black=context) ---"},
         _img_block(png),
     ]
 
@@ -1832,21 +2039,34 @@ def run_dual_pass(
     if logger:
         logger.log(beat_idx, segment, "pass", "start")
 
-    print(f"  [{segment}] Rendering focused strip (red=target, black=context)...")
-    png = render_segment_focused_strip(record, fid, beat_idx, segment, features)
-    if png is None:
-        print(f"  [{segment}] Render failed — skipping")
-        return [], {}
+    # 1. FiducialAgent — one call per lead (single-lead ECG paper strip each time)
+    available_leads = [l for l in LEAD_ORDER if l in fid.fpt and l in record.lead_names]
+    all_changes: list[dict] = []
+    for lead in available_leads:
+        print(f"  [{segment}] Rendering single-lead strip for {lead}...")
+        png = render_single_lead_segment_strip(record, fid, beat_idx, segment, lead)
+        if png is None:
+            print(f"  [{segment}:{lead}] Render failed — skipping")
+            continue
+        lead_changes = _run_fiducial_agent(
+            record, fid, features, beat_idx, segment, png, model,
+            lead=lead, stream=stream, logger=logger,
+        )
+        all_changes.extend(lead_changes)
 
-    # 1. FiducialAgent — corrects positions
-    changes = _run_fiducial_agent(
-        record, fid, features, beat_idx, segment, png, model, stream, logger=logger
-    )
+    changes = all_changes
 
-    # 2. Re-render with corrected fiducials
+    # 2. Re-render with corrected fiducials (use full-context strip for MorphologyAgent)
     png_corrected = render_segment_focused_strip(record, fid, beat_idx, segment, features)
     if png_corrected is None:
-        png_corrected = png
+        # Fallback: use last single-lead render for the reference lead
+        png_corrected = render_single_lead_segment_strip(record, fid, beat_idx, segment, "II") \
+                        or render_single_lead_segment_strip(record, fid, beat_idx, segment, available_leads[0]) \
+                        if available_leads else None
+
+    if png_corrected is None:
+        print(f"  [{segment}] Re-render failed — skipping morphology agent")
+        return changes, {}
 
     # 3. MorphologyAgent — clinical interpretation with measurement tools
     morph = _run_morphology_agent(

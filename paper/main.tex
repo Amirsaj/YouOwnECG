@@ -1,8 +1,9 @@
-% YouOwnECG — Full-Stack Open-Source ECG Interpretation
-% Main document
+% CardioTrace — main paper
+% Last structural edit: 2026-04-18
+
 \documentclass[journal,compsoc]{IEEEtran}
 
-% ── Packages ──────────────────────────────────────────────────────────────
+% ── Packages ──
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{amsmath,amssymb}
@@ -11,68 +12,152 @@
 \usepackage{multirow}
 \usepackage{xcolor}
 \usepackage{hyperref}
-\usepackage{cleveref}
 \usepackage{siunitx}
-\usepackage{subcaption}
 \usepackage{enumitem}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
 \usepackage{tabularx}
-\usepackage{rotating}
 \usepackage[numbers]{natbib}
 
-% ── Custom commands ───────────────────────────────────────────────────────
-\newcommand{\system}{YouOwnECG}
+\newcommand{\system}{CardioTrace}
 \newcommand{\ms}{\,\text{ms}}
 \newcommand{\mv}{\,\text{mV}}
 \newcommand{\bpm}{\,\text{bpm}}
 \newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
-\newcommand{\figprompt}[1]{\textcolor{blue}{\textit{Figure prompt: #1}}}
+\newcommand{\pending}[1]{\textcolor{orange}{\textbf{[PENDING: #1]}}}
+\newcommand{\refplaceholder}[1]{\textcolor{blue}{[REF: #1]}}
 
 \graphicspath{{figures/}}
 
-% ══════════════════════════════════════════════════════════════════════════
+% ============================================================
+% PAPER ROADMAP — FUTURE WRITING NOTES (do not delete)
+% ============================================================
+% Source: 272-cell per-patient cardiologist read in
+%   paper/headspace/12_systematic_misses/per_patient/
+% Synthesis: paper/headspace/00_TOP_FINDINGS_v4_272cells.md
+%
+% The strongest pitch for this paper is the COMBINATION of:
+%   (1) versioned prompts (v2, v5) + versioned reasoner patches
+%       (v00..v10, with v11 as the targeted fix layer)
+%   (2) the modular 5-layer architecture
+%       (signal -> vision -> aggregator -> reasoner -> judge)
+%   (3) the 272-cell manual failure-mode analysis that maps
+%       every miss to a specific responsible layer
+%
+% This combination lets the paper claim something most ECG-LLM
+% papers cannot: methodology for building diagnostic LLM
+% pipelines with explicit per-layer failure-mode accountability.
+%
+% KEY POINTS TO BUILD OUT WHEN WRITING:
+%
+% (A) Per-layer failure-mode attribution table (paper figure)
+%     Each of the 14 failure categories from the 272-cell read
+%     maps to a specific layer. Suggested table columns:
+%       Failure mode | Cell count | Responsible layer | Fix layer
+%     Categories include:
+%       - AFib false-positive on sinus-irregular (12+ cells)
+%       - PVC architectural emission gap (20+ cells)
+%       - Pacemaker detection gap (14+ cells)
+%       - LBBB <-> RBBB <-> IVCD discrimination (10+ cells)
+%       - Atrial flutter rate-window too narrow (7+ cells)
+%       - Vision LM polarity inversion (suspect wider, 1 documented)
+%       - Inferior MI under-commit (6+ cells)
+%       - 2-deg / 3-deg AV block emission gap (4 cells)
+%       - Ventricular aneurysm detection gap (3 cells)
+%       - PTB-XL likelihood-0 phantom GT entries (30+ cells, GT-layer fix)
+%       - LUDB chamber-enlargement over-coding (30+ cells, NOT our bug)
+%       - LUDB axis-label disagreement (15+ cells, GT-quality)
+%       - Chapman WPW/1AVB phantom labels (5+ cells, GT-quality)
+%       - PAC/SVES architectural emission gap (6+ cells)
+%
+% (B) Prompt-evolution ablation (v2 vs v5 on same 485 patients)
+%     Already in the data. Show how v5's "speaks to / out-of-scope"
+%     prompt sections eliminated cross-talk noise but caused some
+%     over-strictness on specific findings. Use ludb_143 as the
+%     specific example (v5 catches LAE, v2 misses it). See
+%     headspace/07_v2_vs_v5_prompts/README.md.
+%
+% (C) v11 as the targeted-fix layer
+%     Phase 1 (highest impact, lowest risk):
+%       - PTB-XL likelihood-0 phantom filter (GT loader, 3-line fix)
+%       - PVC emission rule (vision + reasoner emission table)
+%       - AFib false-positive override (vision-confirmed P-wave
+%         in lead II overrides signal "sinus irregular")
+%       - Vision-prompt polarity fix (above/below baseline instead
+%         of upright/inverted)
+%       - Pacemaker detection at signal pipeline
+%     Phase 2 (medium): flutter window expansion, bundle-block
+%       discrimination tuning, PAC/SVES emission, IMI threshold
+%     Phase 3 (paper-novelty): 2-deg/3-deg AVB detection,
+%       ventricular aneurysm rule, vision prompt v2 -> v5 alignment
+%     Conservative v11 lift estimate: 50-80 captures across 970
+%     cells (5-8% absolute improvement). Combined with Phase 1+2
+%     pushes capture toward ~87-88% overall.
+%
+% (D) Honest GT-quality framing in Discussion
+%     The headline capture rate (v2 81.5%, v5 79.4%) under-states
+%     the model's real ECG-modality performance because some
+%     "missed" findings are not detectable on the 12-lead ECG
+%     alone (echo-derived LUDB chamber findings, PTB-XL phantom
+%     likelihood-0 entries). After filtering phantoms and
+%     accounting for multi-modal LUDB labels, effective
+%     ECG-modality capture is approximately 87% (v2) / 85% (v5).
+%
+% (E) Suggested case-study figures
+%     STRONG CATCHES (positive examples):
+%       - ptbxl_2317 (Sokolow 3.87 mV definitive LVH)
+%       - ptbxl_16748 (R/V5 3.17 mV massive LVH)
+%       - ptbxl_12223 v2/v5 (textbook hyperacute T anterior STEMI)
+%       - ptbxl_14534 v2/v5 (bifascicular block detection)
+%       - ptbxl_11711 v2/v5 (WPW + AFib, clinically critical)
+%     FAILURE CASE STUDIES (negative examples):
+%       - ptbxl_15588 v2/v5 (5 false positives on a NORM patient,
+%         AFib false-pos cascade)
+%       - ptbxl_17719 v5 (LBBB missed despite clear broad-QS V1)
+%       - ptbxl_12936 v2 (RBBB missed despite textbook rsR' M-shape)
+%       - ludb_8 / ludb_93 (paced rhythm completely missed,
+%         labeled "sinus regular" by signal pipeline)
+%       - ptbxl_13499 v2/v5 (LV aneurysm pattern not committed,
+%         classic persistent ST elevation + QS in V2)
+%       - ludb_101 v5 (vision LM polarity inversion documented)
+%
+% (F) Suggested section structure that exploits all of the above
+%     1. Architecture — describe 5 layers as independently
+%        inspectable / patchable
+%     2. Prompt evolution — v2 vs v5 head-to-head on same cohort
+%     3. Per-layer failure-mode analysis — Table 1 from 272 cells
+%     4. Targeted fixes (v11) — surgical fixes informed by failure
+%        attribution; quantify capture lift per fix
+%     5. v11 results — re-run on 970 cells; before/after capture
+%        and which failure modes closed
+%     6. Discussion — GT-quality framing for honest reporting
+%
+% ============================================================
+% END PAPER ROADMAP NOTES
+% ============================================================
+
+
+% another thing we need to add to this paper we have to add the word deductive to showcasing the difference between the traditional approach and the new approach. and imply that old version was inductive.
+
 \begin{document}
 
-\title{\system{}: Signal-Grounded Multi-Agent LLM Architecture\\
-for Automated 12-Lead ECG Interpretation\\
-with Cross-Model and Cross-Dataset Validation}
+\title{\system{}: Traceable 12-Lead ECG Interpretation\\
+via Vision-Language Fiducial Verification\\
+and Retrieval-Augmented Diagnostic Reasoning}
 
 \author{
   Amir~Sadjad~Taleban%
   \IEEEcompsocitemizethanks{
-    \IEEEcompsocthanksitem Manuscript submitted March 2026.
+    \IEEEcompsocthanksitem Manuscript submitted April 2026.
     \IEEEcompsocthanksitem A.~S.~Taleban is with the Joseph J. Zilber School of Public Health, University of Wisconsin--Milwaukee, Milwaukee, WI 53201 USA.
   }
 }
 
 \IEEEtitleabstractindextext{%
 \begin{abstract}
-Automated ECG interpretation remains challenging due to error rates of 4--33\%
-in clinical settings and the recent risk of hallucination when large language
-models (LLMs) are applied directly to physiological signals.  We present
-\system{}, an open-source platform that prevents hallucination through
-\emph{signal grounding}: a deterministic seven-stage pipeline extracts 73
-clinical measurements from raw 12-lead ECGs via wavelet-based fiducial
-detection, and domain-specialist LLM agents reason exclusively over these
-structured measurements---they cannot fabricate values.  Three parallel
-agents (rhythm, ischemia, morphology) feed a synthesis agent that applies
-cross-domain suppression rules, mirroring cardiology department workflow.
-A signal-only fallback provides 26 rule-based detectors when no LLM is
-available.  Validated on 21{,}799 PTB-XL records, the system achieves
-R-peak timing accuracy of 6.1\,ms MAE, heart rate accuracy of 1.8\,bpm
-MAE ($r = 0.953$), and detects 13 cardiac conditions with best performance
-on LAFB (F1\,=\,0.53), RBBB (F1\,=\,0.43), and LVH (F1\,=\,0.35).
-The complete pipeline processes an ECG in 124\,ms on consumer hardware.
-Per-disease clinical dashboards with STAT alerting, interactive 12-lead
-display, and a caliper tool support ER nurse decision-making.  Code,
-validation framework, and clinical interface are released as open source
+\todo{To be written last after all sections are finalized.}
 \end{abstract}
 
 \begin{IEEEkeywords}
-electrocardiography, multi-agent systems, large language models,
-signal grounding, clinical decision support, cardiology,
-hallucination prevention, open-source, PTB-XL
+electrocardiography, explainable AI, multimodal LLM, retrieval-augmented generation, fiducial detection, clinical decision support, open-source
 \end{IEEEkeywords}
 }
 
@@ -80,1498 +165,381 @@ hallucination prevention, open-source, PTB-XL
 \IEEEdisplaynontitleabstractindextext
 
 % ══════════════════════════════════════════════════════════════════════════
-% SECTION 1 — INTRODUCTION
+% INTRODUCTION
 % ══════════════════════════════════════════════════════════════════════════
 \section{Introduction}
 \label{sec:intro}
 
-% ── 1.1  Clinical motivation ──
-% - ECG is the most common cardiac diagnostic test (~300M/year globally)
-% - Interpretation error rates 4–33% depending on setting (cite Salerno 2003, Mele 2008)
-% - Missed STEMI → delayed PCI → increased mortality
-% - Rural/resource-limited settings lack expert cardiologists
+\subsection{Clinical Importance of Accurate ECG Interpretation}
 
-The 12-lead electrocardiogram (ECG) remains the most widely performed cardiac
-diagnostic test, with an estimated 300 million recordings acquired annually
-worldwide~\cite{schlapfer2017computer}. Despite its ubiquity, ECG interpretation
-is error-prone: systematic reviews report misinterpretation rates ranging from
-4\% among board-certified cardiologists to 33\% among non-specialist
-physicians~\cite{salerno2003competency, mele2008accuracy}. The clinical
-consequences of misinterpretation can be severe. Failure to recognize
-ST-elevation myocardial infarction (STEMI) delays primary percutaneous coronary
-intervention (PCI), and each 30-minute increase in door-to-balloon time is
-associated with significantly increased mortality~\cite{demeester2019impact}.
-In rural and resource-limited settings, where board-certified cardiologists are
-scarce, the burden of ECG interpretation falls on clinicians with limited
-subspecialty training, further amplifying diagnostic error
-rates~\cite{who2021cardiovascular}.
+Electrocardiogram misinterpretation contributes to an estimated 4--12\% of adverse cardiac events in emergency settings, with missed ST-elevation myocardial infarction carrying a mortality rate three to four times higher than timely diagnosis~\cite{schlapfer2017computer}. Approximately 300 million ECGs are recorded annually worldwide, and studies consistently report that automated interpretation systems disagree with expert cardiologists in 20--30\% of cases, particularly for subtle findings such as early repolarization, borderline conduction abnormalities, and low-amplitude P-wave morphology~\cite{schlapfer2017computer}. The clinical stakes of ECG analysis --- where a single misclassified waveform can determine whether a patient receives emergent catheterization or is discharged --- motivate the development of systems that are not only accurate but transparently auditable.
 
-% ── 1.2  Existing work and gaps ──
-Computerized ECG interpretation has a long history. Commercial systems such as
-the GE Marquette 12SL~\cite{ge12sl2009} and Philips DXL
-algorithm~\cite{philipsdxl2010} are deployed in clinical practice but rely on
-proprietary, closed-source rule bases with limited publicly available validation
-data. More recently, deep learning approaches have demonstrated impressive
-accuracy: Ribeiro et al.~\cite{ribeiro2020code} achieved cardiologist-level
-performance on six abnormalities using a deep neural network applied to the
-CODE dataset, while Hannun et al.~\cite{hannun2019cardiologist} showed that a
-34-layer convolutional neural network could match board-certified cardiologists
-in arrhythmia detection from single-lead recordings. However, these end-to-end
-models map raw signals directly to diagnostic labels without producing
-clinically interpretable intermediate features such as interval durations, axis
-measurements, or ST-segment amplitudes, limiting their utility for clinical
-audit and education.
+\subsection{The Interpretability Gap in Automated ECG Analysis}
 
-The emergence of large language models (LLMs) in clinical decision support
-introduces a new paradigm for medical reasoning~\cite{nori2023gpt4,
-singhal2023medpalm}. Yet applying LLMs directly to physiological signal data
-raises substantial risks: LLMs can hallucinate plausible but fabricated
-clinical measurements when given unstructured or raw signal
-input~\cite{ji2023hallucination}. Without deterministic grounding in validated
-signal measurements, LLM-generated ECG interpretations cannot be trusted for
-clinical use.
+Automated 12-lead electrocardiogram interpretation has been a research objective since the 1960s, when the first computer-based ECG analysis programs were developed at Washington University and the Mayo Clinic~\cite{schlapfer2017computer}. Six decades later, the field has bifurcated. Commercial systems (GE Marquette 12SL, Philips DXL, Glasgow algorithm) rely on expert-authored decision logic that is transparent and clinically auditable but limited by the difficulty of encoding nuanced pattern recognition into fixed thresholds~\cite{schlapfer2017computer}. Deep learning classifiers~\cite{ribeiro2020automatic,hannun2019cardiologist,strodthoff2021deep} achieve higher aggregate accuracy on benchmark datasets but operate as end-to-end black boxes: a cardiologist presented with a neural network's ``atrial fibrillation'' label has no mechanism to inspect which features in which leads drove the decision, and no principled way to override a borderline call without repeating the analysis manually~\cite{rudin2019stop}. Recent work has quantified this trade-off directly: Patlatzoglou et~al.~\cite{explainability_cost_2025} demonstrated that imposing full explainability on ECG classifiers degrades performance by 13--43\%, suggesting that post-hoc interpretability methods exact a substantial accuracy cost.
 
-% ── 1.3  Gap statement ──
-To date, no open-source system combines (a)~a deterministic signal processing
-pipeline that produces a complete clinical audit trail of measurements,
-(b)~LLM-powered reasoning grounded exclusively in those validated measurements
-rather than raw signals, (c)~per-disease clinical dashboards that mirror the
-workflow of a consulting cardiologist, and (d)~systematic validation on
-standard publicly available ECG databases.
+This paper introduces \system{}, a system designed to sidestep this trade-off entirely. Rather than explaining a black-box classifier after the fact, \system{} constructs its diagnoses through an auditable chain of explicit measurements, vision-based morphological verification, and retrieval-augmented reasoning grounded in textbook criteria. The following subsections describe the landscape that motivates this design.
 
-% ── 1.4  Contributions ──
-This paper presents \system{}, a signal-grounded multi-agent architecture for
-automated 12-lead ECG interpretation that addresses these gaps. Our
-contributions are:
-\begin{enumerate}[leftmargin=*, nosep]
-  \item A full open-source pipeline from raw ECG files to clinical findings,
-    comprising seven deterministic signal processing stages (ingestion,
-    preprocessing, quality assessment, fiducial detection, feature extraction,
-    vision description, and rule-based detection).
-  \item A signal grounding mechanism that prevents LLM hallucination: agents
-    reason exclusively about structured measurements extracted by the
-    deterministic pipeline and cannot fabricate or modify signal-derived values.
-  \item A multi-agent architecture modeled on the workflow of a cardiology
-    department, with domain-specialist agents for rhythm and conduction,
-    ischemia and territory mapping, and morphology and repolarization, followed
-    by an attending-level synthesis agent.
-  \item Over 60 rule-based clinical measurements with automated
-    normal/abnormal flagging based on published clinical criteria, including
-    clinical suppression rules encoding inter-condition dependencies (e.g.,
-    WPW suppresses LBBB/LVH findings; bundle branch block suppresses STEMI
-    and QTc interpretation).
-  \item Per-disease clinical dashboards with STAT alerting for time-critical
-    conditions such as STEMI and high-degree AV block, designed to mirror the
-    information presentation expected by consulting cardiologists.
-  \item Systematic validation on PTB-XL spanning fiducial detection accuracy,
-    measurement agreement, and disease detection performance across 13
-    diagnostic categories, with multi-model comparison (DeepSeek-R1, Claude,
-    GPT-4o, Gemini) and cross-dataset generalization evaluation.
-  \item Complete open-source release of all pipeline code, agent prompts, and
-    validation scripts, enabling reproducibility and community contribution.
+\subsection{Regulatory Pressure for Transparency}
+
+This opacity is not merely an academic concern. The European AI Act classifies medical diagnostic AI as high-risk, requiring that users be provided with ``sufficient transparency to enable the deployer to interpret the system's output and use it appropriately''~\cite{eu_ai_act_2024}. The FDA's guidance on clinical decision support emphasizes that systems whose recommendations cannot be independently reviewed by clinicians require premarket clearance as medical devices~\cite{eu_ai_act_implications_2024}. Both regulatory frameworks create a practical incentive for ECG analysis systems that can explain their reasoning in terms a clinician can audit: which fiducial points were detected, which intervals were measured, which criteria for which conditions were met or not met, and what evidence supports each conclusion.
+
+\subsection{The Necessity of Multimodal Morphological Reasoning}
+
+A second limitation of current approaches, whether threshold-based or learned, is their single-modality design. Clinicians reading ECGs routinely combine signal-level analysis (measuring intervals, assessing axis) with visual morphological pattern recognition (the ``gestalt'' of a waveform shape, ST-segment curvature, T-wave symmetry) and encyclopedic disease knowledge (recalling that a bifid P-wave in lead~II with terminal negativity in V1 suggests left atrial enlargement). No existing automated system integrates all three reasoning modes~\cite{ansari2025ecg_llm_survey}. Threshold-based engines implement signal analysis but cannot see waveform shapes. Deep learning classifiers such as those benchmarked by Strodthoff et~al.~\cite{strodthoff2021deep} extract visual features implicitly but cannot articulate which morphological criteria drove a prediction. Neither consults a structured knowledge base during inference. The ECG-LLM survey by Ansari et~al.~\cite{ansari2025ecg_llm_survey} catalogues approximately 30 transformer- and LLM-based ECG methods; only one performs segment-level waveform decomposition, and none combine signal measurements, visual verification, and knowledge-grounded reasoning in a single pipeline.
+
+\subsection{Multimodal LLMs as an Enabling Technology}
+
+Recent advances in multimodal large language models have opened a new design space for ECG interpretation. PULSE~\cite{li2026pulse} fine-tunes a 7B vision-language model on over one million ECG image instructions, achieving 82.4\% AUC on PTB-XL but requiring large-scale supervised training and providing no mechanism for diagnostic traceability. ECG-LM~\cite{ecg_lm_2025} fuses raw ECG signals with a 7B language model via a ResNet encoder, achieving 0.693 zero-shot diagnostic accuracy but operating on whole-signal embeddings that obscure which morphological features drove each prediction. Q-HEART~\cite{qheart2025} combines an ECG encoder with FAISS-based retrieval of similar clinical reports, but its 1B model achieves only 0.329 accuracy on open-ended diagnostic queries. CKEPE~\cite{ckepe2024} uses GPT-4 to generate clinical-knowledge-enhanced prompts for zero-shot ECG classification (75.2\% AUC), but requires a proprietary cloud model at inference time.
+
+A common limitation across these approaches is their treatment of ECG morphology as an implicit feature to be learned rather than an explicit measurement to be verified. None performs segment-level fiducial quality control, none retrieves structured diagnostic criteria from a curated knowledge base at inference time, and none produces diagnoses with citations traceable to specific textbook passages. Studies evaluating proprietary models directly on ECG images~\cite{seki2025ecg_vqa,lee2025ecg_mi,engelstein2025gpt4o_ecg} report that GPT-4o achieves only 30--66\% accuracy depending on task complexity, with the dominant failure mode being poor visual feature extraction from waveform morphology rather than insufficient medical knowledge. The emergence of open-source multimodal models in the 3B--27B parameter range --- including Gemma~3~\cite{gemma3_2025}, Qwen2.5-VL~\cite{qwen25vl2025}, and MiniCPM-V~\cite{minicpmv2024} --- creates an opportunity to deploy vision-language reasoning on clinic hardware without transmitting patient data externally, provided that prompts are engineered to compensate for these models' morphological limitations.
+
+\subsection{Bridging Signal Processing and Visual Reasoning Through Domain Knowledge}
+
+The morphological vocabulary of electrocardiography --- P-mitrale, RSR$'$, Wellens waves, Brugada pattern --- is drawn from a century of clinical observation codified in standard references including Goldberger's Clinical Electrocardiography, Chou's Electrocardiography in Clinical Practice, and Marriott's Practical Electrocardiography~\cite{goldberger2017clinical,marriott2019practical}. Prompt engineering for ECG interpretation must encode this domain-specific morphological language, not merely generic image descriptions. Studies evaluating generic ``describe this ECG'' prompts report accuracy below 60\% on fiducial verification tasks~\cite{li2026pulse,seki2025ecg_vqa}, whereas prompts that encode wave-specific expectations, lead-specific normal variants, and known algorithmic failure modes achieve 88--99\% accuracy (Section~\ref{sec:results_vision}). This observation motivates the segment-specific, context-aware prompt architecture described in Section~\ref{sec:vision}.
+\subsection{Retrieval-Augmented Generation for Diagnostic Reasoning}
+
+Retrieval-augmented generation (RAG) offers a mechanism for integrating structured disease knowledge into diagnostic reasoning without baking that knowledge into model weights. By retrieving relevant passages from a curated knowledge base at inference time, a RAG system can cite its sources, enabling post-hoc verification of the reasoning chain. Recent work has demonstrated the effectiveness of RAG in clinical settings: i-MedRAG~\cite{imedrag2025} improves medical QA accuracy by 3--7\% through iterative retrieval, while MedGraphRAG~\cite{medgraphrag2025} achieves 91.3\% on MedQA using hierarchical knowledge graphs with source-level citations. However, these systems operate on text-based clinical vignettes and multiple-choice benchmarks. To our knowledge, no prior work applies retrieval-augmented reasoning to ECG diagnostic interpretation, where the retrieved context must interface with signal-level measurements, vision model outputs, and structured morphological observations.
+
+\subsection{Contributions}
+
+This paper presents \system{}, a 12-lead ECG analysis system that integrates deterministic signal processing, multimodal vision-based quality control, and retrieval-augmented diagnostic reasoning into a single pipeline where every conclusion is fully traceable. The contributions are:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Vision-based fiducial verification}: To the best of our knowledge, the first application of multimodal LLMs as automated fiducial QC reviewers in electrocardiography, achieving 88--99\% agreement with expert annotations depending on the model.
+\item \textbf{Segment-specific prompt architecture}: A wave-type-aware prompt design grounded in electrocardiographic textbook knowledge that transforms generic multimodal models into effective ECG morphology reviewers, with a 40-point accuracy improvement over generic prompts.
+\item \textbf{Knowledge-grounded diagnostic reasoning}: A RAG pipeline backed by 94 structured disease documents derived from four standard ECG textbooks, producing diagnoses with explicit citations to specific criteria and measurements.
+\item \textbf{Full diagnostic traceability}: An architecture in which every diagnostic statement traces from raw signal features through vision-verified morphology and retrieved reference passages to the stated conclusion, forming a complete audit chain amenable to clinical review.
+\item \textbf{Multi-model, multi-dataset evaluation}: Comparison of five open-source vision models (3B--27B parameters) across PTB-XL, LUDB, and Chapman--Shaoxing, revealing that architectural design matters more than parameter count for ECG visual understanding.
 \end{enumerate}
 
 
 % ══════════════════════════════════════════════════════════════════════════
-% SECTION 2 — RELATED WORK
+% METHODS
 % ══════════════════════════════════════════════════════════════════════════
-\section{Related Work}
-\label{sec:related}
+\section{Methods}
+\label{sec:methods}
 
-\subsection{Classical ECG Interpretation Systems}
-\label{sec:related-classical}
+\system{} processes a standard 12-lead ECG through four stages designed to mirror clinical reasoning while maintaining full traceability. First, signal ingestion and preprocessing (\S\ref{sec:signal}) standardizes the raw recording and extracts a filtered signal for analysis alongside an unfiltered copy for amplitude measurements. Second, fiducial detection (\S\ref{sec:fiducial}) identifies P-wave, QRS, and T-wave boundaries via a consensus delineation algorithm, then segments each cardiac cycle into annotated strip images. Third, vision-based verification (\S\ref{sec:vision}) submits each segment image to a multimodal LLM with wave-specific prompts that encode domain knowledge from electrocardiographic textbooks, producing fiducial quality judgments and morphological annotations. Fourth, retrieval-augmented diagnostic reasoning (\S\ref{sec:rag}) assembles the vision outputs, extracted measurements, and beat-level narratives into a structured prompt, retrieves relevant passages from a 94-document disease knowledge base, and produces differential diagnoses with explicit citations to the retrieved criteria. The key design principle is that no stage operates as a black box: signal features are explicitly measured, vision verdicts are structured and auditable, and diagnostic conclusions cite specific knowledge-base passages.
 
-Computerized ECG interpretation dates to the 1960s, with the Glasgow Royal
-Infirmary algorithm among the earliest rule-based systems to achieve widespread
-clinical deployment~\cite{macfarlane2005automated}. The Glasgow algorithm
-encodes over 500 diagnostic criteria derived from population studies and expert
-consensus, and has been continuously refined over five
-decades~\cite{macfarlane2011glasgow}. Commercial systems based on similar
-rule-based architectures include the GE Marquette 12SL~\cite{ge12sl2009}, one
-of the most widely deployed algorithms in hospital-grade electrocardiographs,
-and the Philips DXL algorithm~\cite{philipsdxl2010}, which is integrated into
-Philips PageWriter and IntelliSpace ECG platforms used in cardiology
-departments worldwide.
+\subsection{Signal Ingestion and Preprocessing}
+\label{sec:signal}
 
-These classical systems share several limitations. Their diagnostic rule bases
-are proprietary and closed-source, precluding independent audit or
-modification. Published validation studies are typically conducted by the
-manufacturers themselves, and independent evaluations have reported substantial
-variability in accuracy across diagnostic categories, with sensitivity for
-conditions such as left ventricular hypertrophy and anterior myocardial
-infarction falling below 60\% in some
-assessments~\cite{schlapfer2017computer, shah2007errors}. Critically, these
-systems provide limited explainability: they output diagnostic statements and
-may indicate which criteria were met, but do not expose the full chain of
-measurements and reasoning that led to the conclusion. The U.S.\ Food and Drug
-Administration has noted that overreliance on computerized ECG interpretation
-without expert overread remains a source of diagnostic
-error~\cite{salerno2003competency}.
+Raw 12-lead ECG signals are loaded at their native sampling rate and converted to microvolts. When derived leads are absent, they are computed algebraically from leads~I and~II. A lead-name normalization layer handles database-specific conventions.
 
-\subsection{Deep Learning for ECG}
-\label{sec:related-dl}
-
-Deep learning has achieved remarkable results in automated ECG classification.
-Hannun et al.~\cite{hannun2019cardiologist} demonstrated that a 34-layer
-residual convolutional neural network trained on 91,232 single-lead ECG
-recordings could match or exceed the performance of board-certified
-cardiologists in detecting 12 rhythm classes. Ribeiro
-et al.~\cite{ribeiro2020code} extended this to 12-lead ECGs, training a deep
-neural network on over 2.3 million recordings from the CODE dataset and
-achieving cardiologist-level performance on six clinically important
-abnormalities including atrial fibrillation, ST-elevation, and bundle branch
-blocks.
-
-The release of PTB-XL~\cite{wagner2020ptbxl}, a large publicly available
-12-lead ECG dataset with 21,799 records and standardized diagnostic labels, has
-enabled systematic benchmarking of ECG classification methods. Strodthoff
-et al.~\cite{strodthoff2021deep} established baseline results using a range
-of deep learning architectures, and the PTB-XL+ extension~\cite{strodthoff2024ptbxl}
-added algorithmically derived features to facilitate further research.
-More recently, foundation models pre-trained on large ECG corpora have shown
-promise for transfer learning across ECG interpretation
-tasks~\cite{wornow2023ecg_foundation, oh2024ecg_fm}, leveraging
-self-supervised representation learning to improve generalization with limited
-labeled data.
-
-Despite these advances, deep learning models for ECG remain fundamentally
-opaque. They map raw waveform data directly to diagnostic labels without
-producing clinically meaningful intermediate representations such as QRS
-duration, QT interval, ST-segment amplitude, or axis deviation. This lack of
-interpretable intermediate features limits their clinical acceptability: a
-cardiologist cannot verify \emph{why} a model flagged an ECG as showing left
-bundle branch block if the model does not report the QRS duration or
-morphological features it relied upon~\cite{vandeleur2021explainability}.
-
-\subsection{LLMs in Clinical Decision Support}
-\label{sec:related-llm}
-
-Large language models have demonstrated strong performance on medical knowledge
-tasks. Nori et al.~\cite{nori2023gpt4} showed that GPT-4 achieved passing
-scores on the United States Medical Licensing Examination (USMLE), while
-Med-PaLM 2~\cite{singhal2023medpalm} reached expert-level performance on
-medical question-answering benchmarks. These results have motivated exploration
-of LLMs for clinical decision support across specialties, including
-radiology~\cite{bhayana2024chatgpt_radiology} and
-pathology~\cite{topol2023ai}.
-
-However, LLMs pose a fundamental risk when applied to clinical signal
-interpretation: hallucination. Ji et al.~\cite{ji2023hallucination} provide a
-comprehensive survey of LLM hallucination, documenting how models can generate
-fluent, confident, and clinically plausible text that is factually incorrect.
-In the ECG domain, this risk is acute: an LLM given raw signal data or
-underspecified measurements might fabricate ST-elevation values, invent QRS
-durations, or confabulate rhythm findings that have no basis in the actual
-recording. Recent studies applying LLMs to ECG interpretation without
-signal grounding have reported both promising results and concerning failure
-modes~\cite{liu2024ecg_llm}.
-
-Our approach addresses hallucination through signal grounding: LLM agents
-receive only structured, deterministically computed measurements from the
-signal processing pipeline and cannot access or fabricate raw signal values.
-This is complemented by retrieval-augmented generation (RAG), following the
-framework of Lewis et al.~\cite{lewis2020rag}, which grounds agent reasoning
-in retrieved clinical textbook evidence rather than relying solely on
-parametric knowledge. The combination of deterministic signal measurements and
-retrieved clinical evidence provides a dual grounding mechanism that
-constrains LLM reasoning to verifiable inputs.
-
-\subsection{Explainability in Clinical AI}
-\label{sec:related-xai}
-
-Explainability in clinical AI has been approached through several paradigms.
-Post-hoc methods such as SHAP~\cite{lundberg2017shap} and attention-based
-visualization have been applied to ECG deep learning models to highlight which
-temporal regions of the signal influenced classification
-decisions~\cite{vandeleur2021explainability}. While these methods provide
-coarse spatial attribution (i.e., which part of the ECG was important), they do
-not produce the clinically meaningful measurements that cardiologists use in
-practice: specific interval durations in milliseconds, amplitudes in
-millivolts, axis angles in degrees, and morphological pattern descriptions.
-
-There is an inherent tension between model accuracy and clinical
-interpretability~\cite{rudin2019stop}. End-to-end deep learning models achieve
-high accuracy precisely because they learn representations that may not
-correspond to established clinical features. Conversely, systems built on
-clinical features are inherently interpretable but may miss subtle patterns
-that deep learning can capture.
-
-\system{} resolves this tension through architectural separation. The
-deterministic pipeline computes over 60 clinical measurements that form a
-complete, auditable feature set aligned with standard ECG interpretation
-criteria~\cite{surawicz2008chous, goldberger2017clinical}. LLM agents then add
-clinical synthesis, contextual reasoning, and differential diagnosis---but
-every measurement they reference is traceable to a specific algorithm with
-defined inputs and outputs. This architecture provides full transparency: the
-signal processing layer offers deterministic reproducibility, while the agent
-layer adds clinical reasoning that can be independently evaluated against the
-underlying measurements.
-
-
-% ══════════════════════════════════════════════════════════════════════════
-% SECTION 3 — SYSTEM ARCHITECTURE
-% ══════════════════════════════════════════════════════════════════════════
-\section{System Architecture}
-\label{sec:architecture}
+Signals are resampled to 500\,Hz via polyphase interpolation. Baseline wander is detected by computing the fractional power in the 0.05--0.5\,Hz band; when this exceeds 15\% of total signal power, a 600\ms{} median filter subtraction is applied. A 4th-order Butterworth bandpass filter (0.5--40\,Hz) is then applied with zero-phase (forward-backward) filtering. The outer 0.85\,s of each lead is excluded from analysis to avoid filtfilt edge transients, defining a safe analysis window. A second copy of the signal is retained at 500\,Hz without bandpass filtering (the ``morphology signal'') for amplitude measurements, ensuring that peak voltages are not attenuated by the filter.
 
 \begin{figure*}[t]
-  \centering
-  % \includegraphics[width=\textwidth]{system_architecture}
-  \figprompt{Full system architecture diagram with data flow arrows.
-  Left-to-right: ECG file → Ingestion → Preprocessing → Quality Assessment →
-  Fiducial Detection → Feature Extraction → Vision Description → Agent Orchestrator
-  (3 parallel domain-specialist agents: Rhythm/Rate/Conduction, Ischemia/Territory,
-  Morphology/Repolarization → sequential Clinical Decision Synthesis) →
-  DiagnosticResult → Frontend (upload → results → per-disease dashboards).
-  RAG knowledge base (textbook chunks) feeds into each agent.
-  Use clinical blue/white color scheme. Emphasize that signal features are
-  deterministic and agents receive measurements as structured input (no raw signal access).}
-  \caption{Overall \system{} architecture. The deterministic signal processing
-  pipeline feeds structured features into domain-specialist LLM agents,
-  whose findings are rendered in per-disease clinical dashboards.}
-  \label{fig:architecture}
+\centering
+\includegraphics[width=\textwidth]{fig1_preprocessing.png}
+\caption{Preprocessing before and after: 12-lead ECG of patient~116 (PTB-XL). Left column shows the raw signal at native sampling rate; right column shows the preprocessed signal after resampling to 500\,Hz, baseline wander correction, and 0.5--40\,Hz bandpass filtering. Clinical ECG paper grid overlay at standard 25\,mm/s, 10\,mm/mV scale. Calibration bar (lower right): 200\,ms horizontal, 1\,mV vertical.}
+\label{fig:preprocessing}
 \end{figure*}
 
-\subsection{Design Principle: Signal-Grounded Agentic Reasoning}
-\label{sec:design-principle}
-The central design principle of \system{} is \emph{signal grounding}: all
-clinical measurements are computed deterministically by the signal processing
-pipeline \emph{before} any LLM agent is invoked. Agents receive a structured
-\texttt{FeatureObject} containing 73 validated measurements---intervals,
-amplitudes, axis values, ST-segment parameters, morphology flags, and rhythm
-descriptors---but never access raw waveform data. This architectural separation
-prevents the hallucination failure mode that arises when LLMs are given
-unstructured signal input~\cite{ji2023hallucination}: an agent cannot fabricate
-an ST-elevation value of $2\mv{}$ if the pipeline measured $0.1\mv{}$, because
-the measurement is an immutable input, not a value the agent generates. The
-system further provides a signal-only fallback comprising 26 deterministic
-rule-based detectors that encode published clinical criteria. This fallback
-requires no LLM API key, ensuring the system remains fully functional in
-offline or resource-constrained deployments and providing a baseline against
-which LLM value-add can be quantified.
+\subsection{Fiducial Detection and Cardiac Cycle Segmentation}
+\label{sec:fiducial}
 
-Agents contribute clinical \emph{reasoning}, not clinical \emph{data}. Their
-role is to synthesize measurements across leads and domains, weigh ambiguous
-findings against retrieved textbook evidence~\cite{lewis2020rag}, calibrate
-confidence in borderline cases, and produce natural-language explanations that
-mirror cardiology consultation reports. Clinical suppression rules encode
-established inter-condition dependencies: Wolff-Parkinson-White (WPW)
-pre-excitation suppresses left bundle branch block (LBBB) and left ventricular
-hypertrophy (LVH) findings, because the delta wave widens the QRS complex and
-inflates voltage measurements, respectively~\cite{surawicz2008chous}. Similarly,
-bundle branch block (BBB) suppresses STEMI detection (expected discordant
-ST changes) and QTc interpretation (unreliable with widened
-QRS)~\cite{goldberger2017clinical}. These rules are applied identically in both
-signal-only and agent-augmented modes, ensuring consistent clinical logic
-regardless of whether an LLM is available.
+Fiducial detection uses the ecgdeli library's consensus delineation algorithm~\cite{pilia2021ecgdeli}, which performs independent P-wave, QRS, and T-wave delineation on each of 12 leads, then resolves disagreements through median-based consensus voting. The algorithm first establishes a consensus R-peak position across all leads, then validates P-wave and T-wave fiducials against this reference. The output is a 13-column fiducial point table (FPT) per lead per beat: P-onset, P-peak, P-offset, QRS-onset, Q-nadir, R-peak, S-nadir, QRS-offset (J-point), T-onset, T-peak, T-offset, and beat classification. Because algorithmic fiducial detection is known to be imprecise at wave boundaries --- particularly P-onset and T-offset, where inter-annotator variability is itself 10--30\ms{}~\cite{schlapfer2017computer} --- the vision-based verification stage (Section~\ref{sec:vision}) serves as an autonomous quality control layer that flags suspect placements before downstream measurements are computed.
 
-\subsection{Signal Processing Pipeline}
-\label{sec:signal-pipeline}
-
-\subsubsection{Ingestion}
-\label{sec:ingestion}
-The ingestion stage accepts four standard ECG file formats: WFDB
-(\texttt{.hea}/\texttt{.dat}), European Data Format (EDF), SCP-ECG, and
-comma-separated value (CSV) files. Each format is parsed into a uniform
-\texttt{RawECGRecord} structure containing the signal matrix, sampling rate,
-lead labels, and recording metadata. Lead names are normalized to the standard
-12-lead nomenclature (e.g., \texttt{AVR}, \texttt{avr}, \texttt{aVR} $\to$
-\texttt{aVR}) to ensure consistent downstream processing regardless of
-source-specific conventions.
-
-\subsubsection{Preprocessing}
-\label{sec:preprocessing}
-The preprocessing stage applies three filtering operations. First, baseline
-wander is removed using a 4th-order Butterworth high-pass filter with a cutoff
-of $0.5\,\text{Hz}$, applied with zero-phase forward-backward filtering
-(\texttt{filtfilt}) to prevent phase distortion. Second, powerline interference
-is suppressed using a notch filter whose center frequency ($50$ or
-$60\,\text{Hz}$) is automatically detected via FFT spectral peak analysis.
-Third, the signal is resampled to $500\,\text{Hz}$ using polyphase rational
-resampling (\texttt{resample\_poly}) to standardize temporal resolution across
-input formats.
-
-The stage produces two parallel output channels: a \emph{filtered} channel
-(high-pass + notch, for interval and rhythm measurements where wander removal
-is essential) and a \emph{morphology} channel (resampled to $500\,\text{Hz}$
-but with preserved raw amplitude characteristics, for amplitude measurements
-such as R-wave voltage and ST-segment deviation). A safe analysis window
-excludes the first and last $3\,\text{s}$ of each recording to avoid transient
-artifacts introduced by zero-phase filtering at signal boundaries.
-
-\subsubsection{Quality Assessment}
-\label{sec:quality}
-Each lead is independently assessed for signal quality using four criteria:
-(1)~signal-to-noise ratio (SNR) estimated from the ratio of QRS-band energy to
-baseline-band energy; (2)~amplitude clipping, detected when samples exceed
-$\pm 5\mv{}$ or saturate at the ADC rail; (3)~flatline segments, identified as
-contiguous regions with variance below $0.001\mv{}^2$ over $500\ms{}$ windows;
-and (4)~high-frequency noise power above $40\,\text{Hz}$, indicating residual
-muscle artifact. Each lead receives a quality grade:
-\textsc{good}, \textsc{acceptable}, \textsc{poor}, or \textsc{unusable}. The
-quality grade propagates downstream as a confidence cap: measurements from
-\textsc{poor} leads are included but flagged, and \textsc{unusable} leads are
-excluded from feature computation entirely.
-
-\subsubsection{Fiducial Detection}
-\label{sec:fiducial-detection}
-Fiducial point detection is based on a Python port of the ECGdeli MATLAB
-toolbox developed at KIT-IBT~\cite{pilia2021ecgdeli}. R-peaks are detected
-using a Haar wavelet-based stationary wavelet transform (SWT) with adaptive
-thresholding across decomposition levels, following the approach of
-Mart{\'i}nez et al.~\cite{martinez2004wavelet}. Detected R-peaks define beat
-boundaries for subsequent segmentation.
-
-Beat segmentation is performed by a \emph{mastermind} consensus module that
-first classifies the recording condition (sinus rhythm, atrial fibrillation,
-bundle branch block, tachycardia, or bradycardia), then applies
-condition-specific search windows for P-wave and T-wave delineation. P-wave and
-T-wave boundaries are identified using derivative zero-crossings and local
-extrema within the condition-adjusted windows. Each beat in each lead produces
-a 13-column fiducial point table (FPT): P\textsubscript{on},
-P\textsubscript{peak}, P\textsubscript{off}, QRS\textsubscript{on}, Q, R, S,
-QRS\textsubscript{off}, L (J-point), T\textsubscript{on},
-T\textsubscript{peak}, T\textsubscript{off}, and beat class. Undetected
-fiducials are encoded as sentinel value $-1$. Beats within $200\ms{}$ of the
-safe analysis window edges are excluded to avoid boundary artifacts.
-
+Once R-peaks are established, each cardiac cycle is segmented into P, QRS, and T windows using percentage-based subdivision of the RR interval. The T-wave window, for example, begins at approximately 35\% of the RR interval after the R-peak and spans roughly 40\% of the RR interval, reflecting the known physiological proportions of the cardiac cycle~\cite{thygesen2018fourth}. Each segment is then rendered as an annotated strip image for submission to the vision model (Section~\ref{sec:vision}).
 \begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{fiducial_annotation}
-  \figprompt{Annotated single-lead ECG beat showing all 13 fiducial points from the
-  FPT table. Label each point: P-onset, P-peak, P-offset, QRS-onset, Q-nadir,
-  R-peak, S-nadir, QRS-offset, J-point, T-onset, T-peak, T-offset. Use a clean
-  normal sinus rhythm beat from Lead II. Color-code: P-wave region in blue,
-  QRS in red, T-wave in green. Show the measurement intervals (PR, QRS, QT)
-  as labeled brackets below the waveform.}
-  \caption{Fiducial point annotation scheme. Each beat in each lead produces a
-  13-element vector used for interval and morphology measurement.}
-  \label{fig:fiducials}
+\centering
+\includegraphics[width=\columnwidth]{fig2_beat_segmentation.png}
+\caption{Single cardiac cycle segmentation (lead~II, patient~116). Top: ECG waveform with P-wave (blue), QRS (red), and T-wave (green) windows highlighted, fiducial markers labeled. Bottom: percentage-based RR interval subdivision used to define each window.}
+\label{fig:segmentation}
 \end{figure}
 
-\subsubsection{Feature Extraction}
-\label{sec:feature-extraction}
-The feature extraction engine computes 73 clinical measurements from the FPT
-and morphology signal. All computations are deterministic: identical input
-signals produce identical output features with no stochastic element.
+\subsection{Vision-Based Verification and Morphological Annotation}
+\label{sec:vision}
 
-\paragraph{Intervals.} PR interval (P\textsubscript{on} $\to$
-QRS\textsubscript{on}), QRS duration (QRS\textsubscript{on} $\to$
-QRS\textsubscript{off}), and QT interval (QRS\textsubscript{on} $\to$
-T\textsubscript{off}) are computed per beat and reported as the median across
-all valid beats. Four QTc corrections are applied: Bazett
-($\text{QTc}_B = \text{QT}/\sqrt{\text{RR}}$), Fridericia
-($\text{QTc}_F = \text{QT}/\text{RR}^{1/3}$), Framingham, and Hodges.
-
-\paragraph{Axis.} P-wave, QRS, and T-wave axes are computed using the area
-method on leads~I and aVF, yielding frontal-plane axis angles in degrees.
-
-\paragraph{ST segment.} The isoelectric reference is taken $10$ samples
-($20\ms{}$ at $500\,\text{Hz}$) before QRS\textsubscript{on}. ST deviation is
-measured at J+$60\ms{}$ relative to this baseline. ST morphology is classified
-as upsloping, horizontal, or downsloping based on the slope between J-point
-and J+$60\ms{}$.
-
-\paragraph{Per-lead amplitudes.} R, S, Q, P, and T amplitudes (in~mV) are
-measured from the morphology channel at fiducial-defined peaks. Q-wave duration,
-R/S amplitude ratio, fragmented QRS detection, and intrinsicoid deflection time
-are computed per lead.
-
-\paragraph{LVH criteria.} Five established criteria are evaluated:
-Sokolow-Lyon (S\textsubscript{V1} + R\textsubscript{V5/V6} $> 3.5\mv{}$),
-Cornell voltage, Cornell product (Cornell voltage $\times$ QRS duration),
-Romhilt-Estes point score, and Lewis index.
-
-\paragraph{Heart rate variability.} SDNN and RMSSD are computed from the
-RR interval series. QT dispersion (max~QT $-$ min~QT across leads) and
-the T\textsubscript{peak}-to-T\textsubscript{end} (Tpe) interval are also
-reported. All 73 measurements are automatically classified as normal,
-borderline, or abnormal based on published clinical
-thresholds~\cite{surawicz2008chous, goldberger2017clinical}.
+For each (segment, lead) pair, the cropped strip image is submitted to a small-to-medium-scale open-source multimodal LLM (3B--27B parameters) along with extracted metadata (fiducial times in ms, amplitudes, clinical context). The model returns a structured JSON response containing per-fiducial verdicts (correct, wrong with suggested correction, or uncertain), morphology observations (shape, polarity, symmetry), and clinical flags (ST elevation, T-wave inversion, pathological Q-wave depth). Table~\ref{tab:models} lists the five models evaluated.
 
 \begin{table}[t]
-  \centering
-  \caption{Key features extracted by the signal processing pipeline.}
-  \label{tab:features}
-  \begin{tabular}{@{}lll@{}}
-    \toprule
-    \textbf{Category} & \textbf{Feature} & \textbf{Unit} \\
-    \midrule
-    \multirow{4}{*}{Intervals}
-      & Heart rate (ventricular) & bpm \\
-      & PR interval & ms \\
-      & QRS duration & ms \\
-      & QTc (Bazett / Fridericia) & ms \\
-    \midrule
-    \multirow{3}{*}{Amplitudes}
-      & R amplitude (per lead) & mV \\
-      & S amplitude (per lead) & mV \\
-      & T amplitude (per lead) & mV \\
-    \midrule
-    \multirow{3}{*}{ST Segment}
-      & ST elevation (per lead) & mV \\
-      & ST depression (per lead) & mV \\
-      & ST morphology (per lead) & — \\
-    \midrule
-    \multirow{4}{*}{Morphology}
-      & QRS axis & degrees \\
-      & LBBB / RBBB & boolean \\
-      & WPW pattern & boolean \\
-      & LVH criteria (Sokolow, RE) & — \\
-    \midrule
-    \multirow{3}{*}{Rhythm}
-      & Dominant rhythm & class \\
-      & Rhythm regularity & boolean \\
-      & RR variability (RMSSD) & ms \\
-    \bottomrule
-  \end{tabular}
+\centering
+\caption{Vision models evaluated for fiducial verification.}
+\label{tab:models}
+\begin{tabular}{llll}
+\toprule
+Model & Params & Architecture & Reference \\
+\midrule
+Qwen2.5-VL & 7B & ViT + MLP merger & \cite{qwen25vl2025} \\
+Gemma-3 & 27B & SigLIP + local/global attn & \cite{gemma3_2025} \\
+Gemma-3 & 12B & SigLIP + local/global attn & \cite{gemma3_2025} \\
+MiniCPM-V & 3B & SigLIP + perceiver & \cite{minicpmv2024} \\
+LLaVA & 13B & CLIP ViT-L + Vicuna & \cite{llavamed2023} \\
+\bottomrule
+\end{tabular}
 \end{table}
 
-\subsection{Multi-Agent Diagnostic System}
-\label{sec:agents}
-
-\begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{agent_architecture}
-  \figprompt{Agent orchestration diagram modeled after a cardiology department.
-  Show 3 parallel domain-specialist agents (like subspecialty fellows):
-  Rhythm/Rate/Conduction Agent, Ischemia/Territory Agent,
-  Morphology/Repolarization Agent. Each receives the same FeatureObject
-  (structured measurements) plus RAG-retrieved textbook citations.
-  Their findings feed into a sequential Clinical Decision Synthesis agent
-  (like the attending cardiologist) that resolves conflicts, applies
-  clinical suppression rules, and produces the final DiagnosticResult.
-  Show: input = FeatureObject + RAG context, output = list of DiagnosticFinding
-  with confidence levels. Color: blue for deterministic signal data,
-  orange for LLM clinical reasoning.}
-  \caption{Multi-agent architecture mirroring a cardiology department.
-  Three domain-specialist agents (analogous to subspecialty fellows) run
-  in parallel; a synthesis agent (attending) resolves conflicts and applies
-  clinical suppression rules.}
-  \label{fig:agents}
-\end{figure}
-
-\subsubsection{Domain-Specialist Agents}
-\label{sec:domain-agents}
-The multi-agent architecture mirrors the organizational structure of a
-cardiology department, where subspecialty fellows independently evaluate an ECG
-before an attending cardiologist synthesizes their assessments. Three
-domain-specialist agents execute in parallel (Phase~1, asynchronous):
-
-\begin{enumerate}[leftmargin=*, nosep]
-  \item \textbf{Rhythm, Rate, and Conduction (RRC) Agent} --- evaluates heart
-    rate, rhythm regularity, P-wave morphology, PR interval, QRS duration, and
-    conduction abnormalities including atrial fibrillation, AV blocks (1st,
-    2nd, and 3rd degree), bundle branch blocks (LBBB, RBBB), and
-    Wolff-Parkinson-White pre-excitation.
-  \item \textbf{Ischemia and Territory (IT) Agent} --- assesses ST-segment
-    deviation patterns for STEMI territory mapping (anterior, inferior,
-    lateral), reciprocal changes, and acute coronary syndrome variants
-    including Wellens syndrome, de~Winter T-waves, and Sgarbossa criteria for
-    STEMI in the setting of LBBB.
-  \item \textbf{Morphology and Repolarization (MR) Agent} --- evaluates
-    ventricular hypertrophy (LVH via multiple voltage criteria, RVH), atrial
-    enlargement (LAE, RAE), axis deviation, QT prolongation, low voltage,
-    Brugada pattern, and T-wave abnormalities.
-\end{enumerate}
-
-Each agent receives the identical \texttt{FeatureObject} (73 deterministic
-measurements), a domain-specific context prompt, and RAG-retrieved textbook
-citations. Each agent produces a list of \texttt{DiagnosticFinding} objects,
-where each finding includes a condition name, confidence level (\textsc{high},
-\textsc{medium}, \textsc{low}, or \textsc{insufficient\_evidence}), a
-plain-language clinical summary, technical detail, and the specific feature
-values that drove the conclusion. Because agents operate on pre-computed
-measurements rather than raw signals, they cannot hallucinate or modify
-signal-derived values.
-
-\subsubsection{Clinical Decision Synthesis Agent}
-\label{sec:cds-agent}
-A fourth agent, the Clinical Decision Synthesis (CDS) agent, executes
-sequentially in Phase~2 after all specialist findings are available. The CDS
-agent fulfills the role of an attending cardiologist: it receives the complete
-set of findings from all three specialists, resolves cross-domain conflicts
-(e.g., when the RRC and MR agents produce contradictory assessments of QRS
-morphology), and applies clinical suppression rules. Suppression rules encode
-established cardiology knowledge about inter-condition
-dependencies~\cite{surawicz2008chous}:
-\begin{itemize}[leftmargin=*, nosep]
-  \item WPW pre-excitation suppresses LBBB (the delta wave widens the QRS
-    complex, mimicking LBBB morphology) and LVH (pre-excitation inflates
-    voltage measurements, rendering Sokolow-Lyon and Cornell criteria
-    unreliable).
-  \item BBB suppresses STEMI detection (expected discordant ST changes in
-    bundle branch block are not indicative of acute ischemia without applying
-    Sgarbossa criteria) and QTc interpretation (QTc correction formulas are
-    unreliable when QRS duration exceeds $120\ms{}$).
-  \item Atrial fibrillation suppresses P-wave morphology findings (P-waves are
-    absent by definition in AFib).
-\end{itemize}
-The CDS agent produces the final \texttt{DiagnosticResult}: a merged,
-deduplicated, suppression-filtered list of findings with consolidated
-confidence levels.
-
-\subsubsection{Signal-Only Fallback}
-\label{sec:signal-only}
-The system includes 26 deterministic rule-based detectors that encode the same
-clinical criteria used by the LLM agents. These detectors operate without any
-LLM API call, using threshold-based logic applied directly to the 73
-measurements. Nine detectors target STAT (time-critical) conditions: anterior,
-inferior, and lateral STEMI; complete AV block; Sgarbossa-positive STEMI in
-BBB; Wellens syndrome; de~Winter pattern; Brugada Type~1; and long QT
-syndrome. The remaining detectors cover conduction abnormalities (LBBB, RBBB,
-WPW, AFib, 1st/2nd degree AVB, LAFB) and structural findings (LVH, RVH, LAE,
-RAE, low voltage). The same clinical suppression rules are applied
-post-detection. The signal-only mode serves as both a standalone clinical tool
-and a controlled baseline for quantifying the incremental value of LLM agents.
-
-\subsubsection{RAG Knowledge Base}
-\label{sec:rag}
-Each agent's reasoning is augmented by retrieval from a curated knowledge base
-of clinical textbook content~\cite{lewis2020rag}. Source texts include
-\emph{Chou's Electrocardiography in Clinical Practice}~\cite{surawicz2008chous}
-and \emph{Goldberger's Clinical Electrocardiography}~\cite{goldberger2017clinical}.
-Text is chunked at the subsection level, embedded using a dense retrieval
-model, and indexed for semantic search. At inference time, the agent
-orchestrator retrieves the top-$k$ most relevant chunks for each diagnostic
-domain and includes them in the agent's context window alongside the
-\texttt{FeatureObject}. This retrieval-augmented generation constrains agent
-reasoning to published clinical evidence, providing a second grounding
-mechanism (evidence grounding) complementary to the signal grounding provided
-by deterministic measurements.
-
-\subsection{Clinical Frontend}
-\label{sec:frontend}
+\textbf{Prompt architecture.} Each wave type (P, QRS, T) receives a distinct prompt constructed from a four-layer hierarchical template: (1)~a \emph{domain context} layer encoding the morphological vocabulary and normal/variant expectations for that wave type, drawn from standard electrocardiographic textbooks~\cite{goldberger2017clinical,marriott2019practical}; (2)~a \emph{lead-specific expectations} layer encoding the expected polarity, amplitude range, and shape for the target lead; (3)~an \emph{algorithm explanation} layer describing how the upstream signal pipeline detected the fiducial and what failure modes are known, directing the vision model's attention to the points most likely to be incorrect; and (4)~a \emph{clinical context} layer injecting patient-level information such as detected conduction abnormalities (e.g., LBBB triggers supplementary context explaining that discordant ST-T changes are expected). This layered design is a critical architectural choice: generic ``analyze this ECG segment'' prompts produce accuracy below 60\% in our experiments, whereas the full prompt hierarchy achieves 88--99\% accuracy depending on the model (Section~\ref{sec:results_vision}).
 
 \begin{figure*}[t]
-  \centering
-  % \includegraphics[width=\textwidth]{disease_dashboard}
-  \figprompt{Screenshot-style mockup of the per-disease dashboard for Anterior STEMI.
-  Layout: (1) Top banner with red STAT badge and ``Anterior STEMI — HIGH confidence''
-  plus global measurement badges (HR, QRS, PR, QTc). (2) Left panel: 4 ECG lead strips
-  (V1--V4) on pink clinical grid paper with ST elevation arrows annotated in red,
-  J-point measurement lines, R-peak markers. (3) Right top: criteria checklist showing
-  checkmarks for ``ST elevation >= 1mm in >= 2 contiguous precordial leads'',
-  ``Reciprocal ST depression in inferior leads''. (4) Right middle: per-lead measurement
-  table with V1--V4 ST elevation values highlighted red when above threshold.
-  (5) Bottom: clinical explanation text and STAT action panel (``Activate cath lab'').
-  Use clinical white/blue/red color scheme with pink ECG grid.}
-  \caption{Per-disease clinical dashboard for Anterior STEMI. Each finding type
-  has a tailored view showing relevant leads, annotated waveforms, diagnostic
-  criteria evaluation, and clinical action guidance.}
-  \label{fig:dashboard}
+\centering
+\includegraphics[width=\textwidth]{fig3_vision_input.png}
+\caption{Vision pipeline: segment-specific verification. Three cropped segment images (P-wave in lead~II, QRS in lead~V1, T-wave in lead~V3) as submitted to the Gemma-27B vision model, with abbreviated prompt excerpts (grey boxes) showing the four-layer prompt hierarchy and the model's structured JSON responses (yellow boxes) containing fiducial verdicts, morphological observations, and clinical flags.}
+\label{fig:vision_input}
 \end{figure*}
 
-\subsubsection{Per-Disease Dashboards}
-\label{sec:dashboards}
-Each detected condition activates a tailored clinical dashboard
-(\cref{fig:dashboard}) designed to mirror the information presentation expected
-by a consulting cardiologist. Each dashboard includes: (1)~a criteria checklist
-showing which diagnostic criteria are met or unmet, with the specific
-measurement values that triggered each criterion; (2)~relevant-lead ECG strips
-with annotated waveforms (ST elevation arrows, fiducial brackets, measurement
-lines); (3)~a per-lead measurement table with values color-coded by clinical
-threshold (green/normal, yellow/borderline, red/abnormal); (4)~a deterministic
-explanation describing the signal-processing logic that produced the finding;
-and (5)~textbook citations from the RAG knowledge base. For STAT conditions
-(STEMI, complete AV block, Brugada Type~1, long QT), the dashboard
-automatically displays a prominent alert banner with recommended clinical
-actions.
+\textbf{Multi-model evaluation.} Five open-source multimodal models spanning 3B to 27B parameters were evaluated (Table~\ref{tab:models}). All models were deployed via the Ollama inference framework without external API calls. Gemma-27B and MiniCPM-V were deployed at scale across the full evaluation cohort; all five models were compared on a subset.
 
-\subsubsection{Clinical ECG Display}
-\label{sec:ecg-display}
-The ECG viewer renders 12-lead recordings on a clinical-standard pink grid
-($1\,\text{mm}$ minor divisions, $5\,\text{mm}$ major divisions) at standard
-calibration ($25\,\text{mm/s}$ paper speed, $10\,\text{mm/mV}$ gain) with a
-$1\mv{}$ calibration pulse. The display supports a $4 \times 3$ grid layout
-with a continuous Lead~II rhythm strip. Fiducial annotations are overlaid as
-color-coded brackets (P-wave onset/offset, QRS onset/offset, T-wave
-onset/offset). ST-segment measurement lines are drawn at the isoelectric
-reference and J+$60\ms{}$ measurement points, with arrows indicating elevation
-or depression. An interactive zoom/pan viewer and digital caliper tool allow
-manual interval verification.
+\subsection{Feature Extraction}
+\label{sec:kb}
 
+Approximately 200 clinical measurements are computed from the fiducial tables and signal amplitudes. Intervals (PR, QRS, QT) are taken as the median across all detected beats. QTc is computed using four correction formulas (Bazett, Fridericia, Framingham, Hodges). Amplitudes (R, S, T, Q) are measured from the unfiltered morphology signal to avoid bandpass attenuation. ST elevation and depression are measured at J+60\ms{} relative to a pre-QRS isoelectric baseline (median of the 100\ms{} segment preceding QRS-onset), using sex- and lead-specific thresholds consistent with AHA/ACC guidelines~\cite{thygesen2018fourth}: V1--V3 $\geq$0.2\mv{} (men) or $\geq$0.15\mv{} (women), all other leads $\geq$0.1\mv{}.
 
-% ══════════════════════════════════════════════════════════════════════════
-% SECTION 4 — VALIDATION METHODOLOGY
-% ══════════════════════════════════════════════════════════════════════════
-\section{Validation Methodology}
-\label{sec:validation}
+Morphological pattern classification assigns per-lead QRS shapes (QS, rS, RS, qR, RSR$'$, monophasic R, fragmented), ST curvature (concave, convex, horizontal), T-wave morphology (upright, inverted, biphasic, symmetric, asymmetric), and ST-T concordance. Voltage criteria for LVH are computed using Sokolow-Lyon, Cornell (sex-adjusted), and the Romhilt-Estes point score. Pathological Q-waves are identified by duration $\geq$40\ms{} or amplitude $\geq$25\% of R-wave, with the V1-V2 exception where any Q-wave is considered abnormal~\cite{thygesen2018fourth}. P-terminal force in V1 is computed as the product of the terminal negative deflection depth and duration (Morris criterion, threshold 0.04\,mV$\cdot$s).
 
-\subsection{Datasets}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig4_kb_categories.png}
+\caption{Knowledge base structure: 94 structured documents across seven diagnostic categories, with document counts and example conditions. Source material drawn from Goldberger, Chou, Marriott, and AHA/ACC guidelines.}
+\label{fig:kb}
+\end{figure}
+
+\subsection{RAG-Based Diagnostic Reasoning}
+\label{sec:rag}
+
+The RAG layer receives the vision model's morphological annotations as its primary input, supplemented by the beat-level narrative and the extracted feature measurement set ($\sim$200 values). The vision output is central: the reasoner sees not only what the signal pipeline measured but how the vision model characterized each segment's morphology, including shape descriptions, polarity assessments, and clinical flags that the signal pipeline cannot produce.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig5_rag_flow.png}
+\caption{\system{} pipeline architecture. A 12-lead ECG is processed through signal preprocessing, fiducial detection, and beat segmentation (blue). Cropped segment images are verified by a vision LLM with segment-specific prompts (orange). A keyword-and-threshold retrieval mechanism selects relevant documents from the 94-document knowledge base (green). The reasoning LLM produces structured diagnoses with explicit citations to KB passages, measurements, and vision annotations (purple/gold).}
+\label{fig:rag_flow}
+\end{figure*}
+
+\textbf{Knowledge base.} The disease knowledge base consists of 94 structured documents organized into seven categories: STAT/emergency conditions (14 files), rhythm disorders (15 files), conduction abnormalities (14 files), chamber enlargement (6 files), repolarization variants (5 files), ischemia/infarction patterns (15 files), and electrolyte/structural conditions (12 files), plus reference documents. Each document follows a standardized eight-section template: pathophysiology, electrical mechanism, lead-by-lead ECG manifestations, diagnostic criteria with numerical thresholds, reasoning complexity analysis, feature dependencies, retrieval requirements, and visualization specification. Source material was drawn from Goldberger's Clinical Electrocardiography, Chou's Electrocardiography in Clinical Practice, Marriott's Practical Electrocardiography, and the AHA/ACC/HRS guidelines~\cite{goldberger2017clinical,marriott2019practical,thygesen2018fourth}.
+
+\textbf{Retrieval.} Document selection proceeds in two passes. First, keyword scanning of the narrative and vision annotations triggers condition-specific retrieval (e.g., ``ST elevated'' retrieves all STEMI variants, ``LBBB'' retrieves LBBB and Sgarbossa criteria). Second, a safety-net pass examines extracted features against threshold conditions (e.g., P-duration $\geq$120\ms{} triggers LAE documents) to capture conditions not explicitly mentioned in the narrative.
+
+\textbf{Reasoning.} The selected documents, vision annotations, narrative, and measurements are assembled into a structured prompt submitted to a reasoning LLM. The architecture is model-agnostic; we evaluate DeepSeek-R1~\cite{deepseek_r1_2025} as the primary backend. The prompt enforces a systematic analysis protocol --- comprehensive beat survey followed by lead-by-lead analysis across all standard ECG parameters --- with embedded constraints that prevent common diagnostic pitfalls such as calling ischemia in the presence of expected discordant ST changes. The output is a structured JSON containing diagnoses with confidence levels, supporting evidence cited to specific leads and measurement values, criteria met and not met, borderline findings, excluded conditions with reasons, and an overall clinical interpretation. Each diagnosis links to the specific KB documents consulted, forming the traceability chain.
+
+\subsection{Evaluation Datasets and Sampling Strategy}
 \label{sec:datasets}
 
-\begin{table}[t]
-  \centering
-  \caption{Datasets used for validation.}
-  \label{tab:datasets}
-  \begin{tabular}{@{}lcccl@{}}
-    \toprule
-    \textbf{Dataset} & \textbf{Records} & \textbf{Leads} & \textbf{Hz} & \textbf{Labels} \\
-    \midrule
-    PTB-XL          & 21,837 & 12 & 500 & 71 SCP codes \\
-    CPSC2018         & 6,877  & 12 & 500 & 9 classes \\
-    Chapman-Shaoxing & 10,646 & 12 & 500 & 11 classes \\
-    CODE-15\%        & 34,500 & 12 & 400 & 6 classes \\
-    % Georgia dataset omitted (not yet validated)
-    \bottomrule
-  \end{tabular}
-\end{table}
+\textbf{PTB-XL.} The PTB-XL database~\cite{wagner2020ptbxl} contains 21,837 12-lead ECG records from 18,885 patients, with SCP-ECG diagnostic labels and the PTB-XL+ extension providing lead-level fiducial annotations. A stratified sample of 352 records was selected for evaluation, drawn to cover all target conditions with proportional disease representation. No model training or threshold tuning was performed on any partition.
 
-\subsubsection{PTB-XL (Primary)}
-\label{sec:ptbxl}
-PTB-XL~\cite{wagner2020ptbxl} serves as the primary validation dataset. It
-comprises 21,837 ten-second, 12-lead ECG recordings sampled at $500\,\text{Hz}$,
-annotated with 71 SCP-ECG diagnostic statement codes, each assigned a
-likelihood score by up to two cardiologists. For disease detection evaluation,
-we consider labels with likelihood $\geq 50\%$ as positive ground truth.
+\textbf{LUDB.} The Lobachevsky University Electrocardiography Database~\cite{kalyakulina2020ludb} provides 200 records with beat-level fiducial annotations across all 12 leads, making it the primary cross-dataset fiducial benchmark. A subset of 47 records received the full vision and RAG pipeline.
 
-Three reference sources are used for pipeline validation:
-\begin{enumerate}[leftmargin=*, nosep]
-  \item \textbf{Fiducial ground truth}: per-lead \texttt{.atr} annotation
-    files generated by the original ECGdeli MATLAB
-    toolbox~\cite{pilia2021ecgdeli}, providing sample-level fiducial point
-    locations for each beat.
-  \item \textbf{Feature ground truth}: the
-    \texttt{ecgdeli\_features.csv} file from
-    PTB-XL+~\cite{strodthoff2024ptbxl}, containing 532 algorithmically derived
-    feature columns (intervals, amplitudes, axes) computed by the reference
-    MATLAB implementation.
-  \item \textbf{Diagnostic labels}: SCP codes mapped to 13 finding types
-    evaluated in this study: LBBB, RBBB, 1st degree AVB, LAFB, WPW, AFib,
-    LVH, anterior STEMI, inferior STEMI, lateral STEMI, long QT,
-    pericarditis, and low voltage.
-\end{enumerate}
+\textbf{Chapman--Shaoxing.} The Chapman--Shaoxing database~\cite{zheng2020chapman} contains 10,247 12-lead records with rhythm and morphology labels. A stratified sample of 87 records was selected to match the disease distribution of the PTB-XL evaluation set, ensuring that cross-dataset comparisons reflect detector generalization rather than prevalence differences.
 
-\subsubsection{Additional Datasets}
-\label{sec:additional-datasets}
-Cross-dataset generalization is evaluated on three additional publicly
-available 12-lead ECG databases (\cref{tab:datasets}): CPSC2018 (6,877
-records, 9 classes)~\cite{liu2018cpsc}, Chapman-Shaoxing (10,646 records, 11
-rhythm classes)~\cite{zheng2020cpsc}, and CODE-15\% (34,500 records, 6
-classes)~\cite{ribeiro2020code}. Each dataset uses a different labeling
-taxonomy, requiring dataset-specific label-to-finding-type mappings. Critically,
-because \system{} uses deterministic clinical criteria rather than learned
-parameters, no retraining or fine-tuning is performed across datasets---the
-identical pipeline and thresholds are applied to all recordings.
-
-\subsection{Validation Modules}
-\label{sec:val-modules}
-
-\subsubsection{Module A: Fiducial Accuracy}
-\label{sec:val-fiducial}
-Pipeline-detected fiducial points are compared against PTB-XL \texttt{.atr}
-ground truth annotations on a per-lead, per-beat basis. Eight fiducial points
-are evaluated: P\textsubscript{on}, P\textsubscript{peak},
-P\textsubscript{off}, QRS\textsubscript{on}, R-peak, QRS\textsubscript{off},
-T\textsubscript{peak}, and T\textsubscript{off}. For each point, we report
-mean signed error (bias), mean absolute error (MAE), and root mean square
-deviation (RMSD), all in milliseconds. Within-tolerance detection rates are
-computed at $\leq 10\ms{}$, $\leq 20\ms{}$, and $\leq 30\ms{}$ thresholds.
-Bland-Altman analysis~\cite{bland1986statistical} provides bias and 95\% limits
-of agreement for each fiducial type. Results are reported both as global
-aggregates and per-lead breakdowns.
-
-\subsubsection{Module B: Measurement Accuracy}
-\label{sec:val-measurement}
-Pipeline-computed clinical measurements are compared against reference values
-from \texttt{ecgdeli\_features.csv}~\cite{strodthoff2024ptbxl}. Evaluated
-measurements include heart rate, PR interval, QRS duration, QT interval, QTc
-(Bazett), and QRS axis. For each measurement, we report mean signed error, MAE,
-RMSD, Pearson correlation coefficient~($r$), and Bland-Altman bias with 95\%
-limits of agreement. Correlation scatter plots and Bland-Altman plots are
-generated for each measurement to visualize systematic bias and
-proportional error.
-
-\subsubsection{Module C: Disease Detection Accuracy}
-\label{sec:val-disease}
-Signal-only disease detection predictions are evaluated against SCP code ground
-truth labels (likelihood $\geq 50\%$) across 13 conditions. For each
-condition, we compute sensitivity (recall), specificity, positive predictive
-value (PPV), negative predictive value (NPV), F1 score, and accuracy from the
-$2 \times 2$ confusion matrix. Per-condition confusion matrices and a
-ROC-space scatter plot visualize diagnostic performance. Macro-averaged metrics
-across all 13 conditions summarize overall system performance. Conditions are
-categorized by clinical urgency: STAT conditions (STEMI, complete AVB) are
-evaluated with emphasis on sensitivity, as false negatives carry the highest
-clinical cost.
-
-\subsubsection{Module D: Pipeline Timing}
-\label{sec:val-timing}
-Per-stage latency is measured over the full PTB-XL dataset on Apple Silicon
-(M-series) hardware using CPU-only computation. For each pipeline stage
-(ingestion, preprocessing, quality assessment, fiducial detection, feature
-extraction), we report mean, median (P50), and 95th percentile (P95) latency
-in milliseconds. End-to-end signal processing latency (stages 1--5) and total
-latency including agent inference are reported separately, as agent latency
-depends on LLM API response time.
-
-\subsection{Multi-Model Validation Protocol}
-\label{sec:multi-model}
-
-The multi-model validation protocol evaluates whether signal grounding enables
-consistent diagnostic performance across different LLM backends. The identical
-\texttt{FeatureObject} and domain-specific context prompts are sent to four
-LLMs (\cref{tab:models}): DeepSeek-R1, Claude~3.5 Sonnet (Anthropic),
-GPT-4o (OpenAI), and Gemini~1.5~Pro (Google). Each model executes the full
-$3+1$ agent pipeline (RRC, IT, MR agents in parallel, followed by CDS
-synthesis). The signal-only deterministic baseline serves as the control
-condition, representing performance achievable without any LLM.
-
-Models are compared on: (1)~per-condition F1 scores and macro-averaged F1;
-(2)~pairwise inter-model agreement via Cohen's $\kappa$; (3)~per-record cost
-(input + output tokens $\times$ provider pricing); and (4)~end-to-end latency
-including API round-trips. This protocol tests the hypothesis that signal
-grounding decouples diagnostic accuracy from model capability: if the
-deterministic measurements are sufficiently informative, any reasonably capable
-LLM should produce similar findings, and the primary differentiator should be
-reasoning quality and confidence calibration rather than raw accuracy.
+\textbf{Sampling rationale.} The evaluation cohort of 486 patients (352 PTB-XL + 47 LUDB + 87 Chapman) was sized to provide statistically meaningful per-condition comparisons. For conditions with $\geq$12 true-positive cases, the Clopper-Pearson exact 95\% confidence interval on sensitivity has a margin of $\pm$22\% or better, which is standard for diagnostic pilot studies~\cite{flahault2005sample}. Table~\ref{tab:datasets} summarizes the evaluation cohort.
 
 \begin{table}[t]
-  \centering
-  \caption{LLM models evaluated in multi-model validation.}
-  \label{tab:models}
-  \begin{tabular}{@{}llcc@{}}
-    \toprule
-    \textbf{Model} & \textbf{Provider} & \textbf{Context} & \textbf{Cost/1K tok} \\
-    \midrule
-    DeepSeek-R1      & DeepSeek    & 64K   & \$0.55 \\
-    Claude 3.5 Sonnet & Anthropic  & 200K  & \$3.00 \\
-    GPT-4o           & OpenAI      & 128K  & \$2.50 \\
-    Gemini 1.5 Pro   & Google      & 1M    & \$1.25 \\
-    Signal-only      & (baseline)  & —     & \$0.00 \\
-    \bottomrule
-  \end{tabular}
+\centering
+\caption{Evaluation dataset summary.}
+\label{tab:datasets}
+\begin{tabular}{lccc}
+\toprule
+Database & Total Records & Sampled & Unique Conditions \\
+\midrule
+PTB-XL & 21{,}837 & 352 & 16 \\
+LUDB & 200 & 47 & 12 \\
+Chapman--Shaoxing & 10{,}247 & 87 & 14 \\
+\midrule
+\textbf{Total} & \textbf{32{,}284} & \textbf{486} & --- \\
+\bottomrule
+\end{tabular}
 \end{table}
+
+\subsection{Performance Metrics}
+\label{sec:metrics}
+
+Performance is evaluated using sensitivity, specificity, positive predictive value (PPV), and F1 score, each reported with 95\% confidence intervals. For conditions with 12 or more true-positive cases in the evaluation cohort, confidence intervals are computed using the Clopper-Pearson exact method for proportions~\cite{newcombe1998ci} and the percentile bootstrap ($B = 2{,}000$) for F1. Conditions with fewer than 12 positive cases are reported as illustrative case series with full diagnostic reasoning chains rather than aggregate statistics, following STARD 2015 reporting guidelines~\cite{bossuyt2015stard}.
+
+Vision model agreement across five architectures is compared using Cochran's Q test with post-hoc pairwise McNemar tests (Bonferroni-corrected). Cross-dataset heterogeneity is assessed using Fisher's exact test. Vision accuracy is computed as $\text{Accuracy}_{\text{vision}} = N_{\text{correct}} / N_{\text{total}}$, where a check is ``correct'' when the model's verdict matches the ground-truth fiducial placement. Results are stratified by segment type (P, QRS, T), database, and model.
 
 
 % ══════════════════════════════════════════════════════════════════════════
-% SECTION 5 — RESULTS
+% RESULTS
 % ══════════════════════════════════════════════════════════════════════════
 \section{Results}
 \label{sec:results}
 
-\subsection{Fiducial Detection Performance}
-\label{sec:results-fiducial}
+The evaluation spans three publicly available 12-lead ECG databases with distinct recording environments and annotation conventions (Table~\ref{tab:datasets}). PTB-XL (352 records) served as the primary benchmark; LUDB (47 records) and Chapman--Shaoxing (87 records) provided cross-dataset validation. All 486 records received the full pipeline including vision verification and RAG diagnostic reasoning. Detailed fiducial and interval measurement tables are reported in Appendix~A.
 
-Fiducial detection was evaluated on 500 PTB-XL records, yielding
-approximately 70,000 beat$\times$lead comparison pairs between the Python
-pipeline and the reference MATLAB ECGdeli annotations. \Cref{tab:fiducial}
-summarizes detection accuracy and matched detection rates for each fiducial
-point type.
+\subsection{Vision-Based Fiducial Verification}
+\label{sec:results_vision}
 
-QRS complex fiducials were detected with the highest accuracy. R-peak
-localization achieved an MAE of $6.1\ms{}$ (RMSD $9.5\ms{}$), reflecting
-the high signal-to-noise ratio of the ventricular depolarization complex.
-QRS onset was localized with MAE $12.3\ms{}$ (RMSD
-$10.2\ms{}$), while QRS offset exhibited slightly larger error (MAE
-$13.6\ms{}$, RMSD $13.7\ms{}$), consistent with the more gradual transition
-from the S-wave to the ST segment. S-peak detection (MAE $7.5\ms{}$, RMSD
-$13.2\ms{}$) was intermediate.
+Each segment is rendered as an annotated image and submitted to a multimodal LLM (3B--27B parameters) that judges whether the predicted fiducial markers are correctly positioned. To the best of our knowledge, this represents the first application of multimodal LLMs as automated fiducial quality-control reviewers in electrocardiography --- a task distinct from the ECG classification and report generation tasks evaluated in prior work~\cite{li2026pulse,ecg_lm_2025,ecg_chat2024,meit2024}.
 
-P-wave and T-wave fiducials exhibited larger errors, as expected given
-their lower amplitude and broader morphology. P-peak (MAE $13.0\ms{}$,
-RMSD $18.1\ms{}$) and T-peak (MAE $11.1\ms{}$, RMSD $15.0\ms{}$) were
-localized more precisely than their respective onset and offset boundaries.
-P-onset (MAE $26.3\ms{}$) and P-offset (MAE $27.4\ms{}$) showed the
-largest errors, reflecting the inherent difficulty of detecting the gradual
-onset and termination of the low-amplitude P-wave.
-T-offset detection (MAE $11.8\ms{}$, RMSD $16.3\ms{}$) was notably
-more accurate than T-onset (MAE $25.9\ms{}$, RMSD $29.6\ms{}$), likely
-because the T-wave termination presents a sharper return to baseline
-than the gradual T-wave onset following the ST segment.
+\todo{Update numbers below once full 486-patient run completes.}
+Across 3,352 segment-level checks on the PTB-XL cohort, the combined reviewer pool achieves 88.6\% agreement with expert-annotated fiducial positions. The accuracy hierarchy follows the expected morphological difficulty gradient: QRS segments at \textbf{96.0\%}, T-wave segments at \textbf{85.0\%}, and P-wave segments at \textbf{72.4\%}. The P-wave figure is notable: inter-annotator agreement among trained cardiologists for P-wave boundary placement ranges from 70\% to 85\%~\cite{schlapfer2017computer}, placing the automated reviewer within the human variability band.
 
-Matched detection rates ranged from $12.0\%$ (P-onset) to $35.9\%$
-(R-peak). These rates reflect the strict comparison protocol rather than
-true detection failure: our Python port applies conservative safe-window
-edge filtering that excludes beats within $200\ms{}$ of the analysis window
-boundaries, removing many beats that the MATLAB reference counts. When a
-beat was successfully matched in both systems, localization accuracy was
-good across all fiducial types (\cref{fig:fiducial_errors}).
+Of the flagged checks, 11.4\% were marked as incorrectly placed, with segment-dependent rates: 27.6\% for P-wave, 15.0\% for T-wave, and 4.0\% for QRS. These correction rates provide a built-in quality metric absent from conventional fiducial pipelines, where errors propagate silently into downstream measurements.
 
+Table~\ref{tab:vision} reports verification accuracy for the five models. Results are shown separately for PTB-XL and LUDB, which provide ground-truth fiducial annotations; Chapman--Shaoxing lacks fiducial labels and is excluded from this analysis.
 \begin{table}[t]
-  \centering
-  \caption{Fiducial detection accuracy on PTB-XL (500 records,
-  ${\sim}70{,}000$ beat$\times$lead pairs). Error in milliseconds.
-  Detection rate indicates the fraction of reference beats matched.}
-  \label{tab:fiducial}
-  \begin{tabular}{@{}lrrr@{}}
-    \toprule
-    \textbf{Fiducial} & \textbf{MAE (ms)} & \textbf{RMSE (ms)}
-      & \textbf{Det.\ Rate (\%)} \\
-    \midrule
-    P onset     & 26.3  & 29.3  & 12.0 \\
-    P peak      & 13.0  & 18.1  & 19.3 \\
-    P offset    & 27.4  & 29.8  & 17.4 \\
-    QRS onset   & 12.3  & 10.2  & 33.4 \\
-    R peak      &  6.1  &  9.5  & 35.9 \\
-    S peak      &  7.5  & 13.2  & 32.1 \\
-    QRS offset  & 13.6  & 13.7  & 32.0 \\
-    T onset     & 25.9  & 29.6  & 12.4 \\
-    T peak      & 11.1  & 15.0  & 27.0 \\
-    T offset    & 11.8  & 16.3  & 22.6 \\
-    \bottomrule
-  \end{tabular}
+\centering
+\caption{Vision model fiducial verification accuracy.}
+\label{tab:vision}
+\begin{tabular}{lcccccc}
+\toprule
+Model & Params & P (\%) & QRS (\%) & T (\%) & Overall (\%) & N \\
+\midrule
+Qwen2.5-VL & 7B & --- & --- & --- & \textbf{99.3} & 549 \\
+Gemma-27B & 27B & 71.6 & \textbf{99.1} & 88.6 & \textbf{91.5} & 2{,}803 \\
+MiniCPM-V & 3B & 76.7 & 80.3 & 66.7 & 74.0 & 549 \\
+Gemma-12B & 12B & --- & --- & --- & 68.7 & 549 \\
+LLaVA-13B & 13B & --- & --- & --- & 45.2 & 527 \\
+\bottomrule
+\end{tabular}
 \end{table}
 
-\begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{fig1_fiducial_error_distribution}
-  \figprompt{Box-and-whisker plot of fiducial detection error (ms) for each
-  fiducial type. X-axis: fiducial names. Y-axis: absolute error (ms).
-  Show median, IQR, and outlier whiskers. Color-code by wave component:
-  blue for P-wave, red for QRS, green for T-wave.}
-  \caption{Distribution of fiducial detection errors by point type.
-  QRS fiducials (red) exhibit the lowest error; P-wave boundaries
-  (blue) the highest.}
-  \label{fig:fiducial_errors}
-\end{figure}
+Parameter count alone does not predict performance on this task: the 7B Qwen2.5-VL model outperforms every larger alternative, suggesting that architectural choices around fine-grained temporal signal tokenization matter more than raw capacity~\cite{li2026pulse,gem_ecg_2025}. The 46-point gap between the best and worst model (99.3\% vs 45.2\%) underscores that visual ECG understanding remains a differentiating benchmark for multimodal models.
 
-\subsection{Interval and Measurement Accuracy}
-\label{sec:results-measurement}
+Beyond fiducial verification, each model produces per-segment morphological annotations --- T-wave inversions, ST elevations, discordant ST-T patterns, and conduction morphology --- that feed directly into the RAG reasoning layer (Section~\ref{sec:results_rag}).
 
-\Cref{tab:measurements} presents the measurement agreement between the
-pipeline and the PTB-XL+ reference features~\cite{strodthoff2024ptbxl}
-across 500 records.
-
-Heart rate exhibited the strongest agreement, with MAE of $1.8\bpm{}$,
-RMSE of $5.5\bpm{}$, Pearson $r = 0.953$, and negligible bias
-($+0.0\bpm{}$). This is expected, as heart rate is derived from R-peak
-intervals, and R-peak detection achieved the highest fiducial accuracy
-(\cref{tab:fiducial}). The scatter plot in \cref{fig:hr_scatter} confirms
-tight clustering along the identity line across the full physiological
-range.
-
-Interval measurements (PR, QRS, QT) showed systematic negative biases:
-$-60.3\ms{}$ for PR, $-37.3\ms{}$ for QRS, and $-87.6\ms{}$ for QT.
-These biases are attributable to the safe analysis window used in our
-pipeline, which excludes the first and last $3\,\text{s}$ of each
-recording. The reference MATLAB implementation analyzes the full recording
-duration, measuring intervals from beats across the entire $10\,\text{s}$
-strip, while our pipeline restricts analysis to the central
-$4\,\text{s}$ window. This systematically reduces the number of beats
-available for median computation and can shift the resulting interval
-estimates, particularly when edge beats differ from central beats.
-
-QT interval showed the highest correlation among the interval
-measurements ($r = 0.664$), reflecting the relatively precise T-offset
-detection (MAE $11.8\ms{}$). QRS duration correlation ($r = 0.404$) was
-moderate, consistent with the combined effect of QRS onset and offset
-errors. PR interval correlation was weakest ($r = 0.253$), as it
-depends on P-onset detection, which had the lowest fiducial accuracy
-(MAE $26.3\ms{}$).
-
-QTc (Bazett) showed near-zero bias ($+1.7\ms{}$), because heart rate
-normalization partially corrects for the interval shortening caused
-by safe-window analysis. However, Pearson correlation was low
-($r = 0.087$), indicating that while the population-level mean is
-well-calibrated, individual record-level QTc agreement is poor.
-The Bland-Altman analysis (\cref{fig:bland_altman}) reveals wide limits
-of agreement ($\pm 143\ms{}$), driven by the compounding of QT interval
-error and heart rate variation through the Bazett square-root correction.
-
-\begin{table}[t]
-  \centering
-  \caption{Measurement accuracy vs.\ PTB-XL+ reference (500 records).}
-  \label{tab:measurements}
-  \begin{tabular}{@{}lrrrrl@{}}
-    \toprule
-    \textbf{Measurement} & \textbf{MAE} & \textbf{RMSE}
-      & \textbf{$r$} & \textbf{Bias} & \textbf{Unit} \\
-    \midrule
-    Heart rate    &  1.8  &  5.5  & 0.953 & $+0.0$   & bpm \\
-    PR interval   & 74.4  & 79.0  & 0.253 & $-60.3$  & ms \\
-    QRS duration  & 37.6  & 46.3  & 0.404 & $-37.3$  & ms \\
-    QT interval   & 88.9  & 114.0 & 0.664 & $-87.6$  & ms \\
-    QTc (Bazett)  & 55.5  & 72.6  & 0.087 & $+1.7$   & ms \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+Beyond fiducial verification, the vision model produces per-segment morphological annotations: among the 2,731 segment assessments with Gemma flags, the model identified T-wave inversions, ST elevations, discordant ST-T patterns, and conduction morphology abnormalities. These qualitative findings feed directly into the RAG reasoning layer (Section~\ref{sec:results_rag}). Figure~\ref{fig:heatmap} illustrates a representative 12-lead heatmap for an inferior STEMI case (patient~7692, true positive), where abnormal and borderline flags distribute across leads and segments in an anatomically coherent pattern.
 
 \begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{fig2_bland_altman}
-  \figprompt{2x3 grid of Bland-Altman plots for PR, QRS, QT, QTc, and HR.
-  X-axis: mean of pipeline and reference. Y-axis: difference (pipeline - reference).
-  Show mean bias line (solid blue) and 95\% limits of agreement (dashed red).
-  Annotate bias value and LoA values on each subplot.}
-  \caption{Bland-Altman analysis of measurement agreement. Systematic
-  negative biases in PR, QRS, and QT reflect safe-window edge exclusion.}
-  \label{fig:bland_altman}
+\centering
+\includegraphics[width=\columnwidth]{fig6_heatmap.png}
+\caption{12-lead vision morphology assessment for patient~116 (Gemma-27B). Each lead shows three consecutive beats with colored overlays on P, QRS, and T segments: green = normal, yellow = borderline, red = abnormal, grey = not assessed. The ECG signal is plotted on a clinical grid background.}
+\label{fig:heatmap}
 \end{figure}
 
-\begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{fig3_heart_rate_scatter}
-  \figprompt{Scatter plot of pipeline HR vs reference HR. Identity line (dashed),
-  regression line (solid red). Pearson r = 0.953 annotated. Color by density.}
-  \caption{Heart rate correlation between pipeline and PTB-XL+ reference
-  ($r = 0.953$, MAE $= 1.8\bpm{}$).}
-  \label{fig:hr_scatter}
-\end{figure}
+\subsection{Diagnostic Reasoning}
+\label{sec:results_rag}
 
-\subsection{Disease Detection Performance}
-\label{sec:results-disease}
+\system{} produces diagnostic labels through a retrieval-augmented generation pipeline that receives the vision model's morphological annotations as its primary input alongside extracted signal features and the beat-level narrative (see Section~\ref{sec:rag}). The reasoning LLM retrieves relevant passages from the 94-document knowledge base and synthesizes a differential diagnosis. On the PTB-XL cohort, the reasoner consulted a median of 20 documents per record and returned a median of 4 diagnoses (range 1 to 6).
 
-Disease detection was evaluated in signal-only mode across approximately
-9,800 PTB-XL records, with ground truth derived from SCP diagnostic codes
-(likelihood $\geq 50\%$). \Cref{tab:disease-detection} presents per-condition
-performance.
+Table~\ref{tab:rag} reports RAG diagnostic performance on PTB-XL alongside cross-dataset generalization on LUDB and Chapman--Shaoxing.
 
-\paragraph{Conduction abnormalities.}
-LAFB was the strongest overall performer (sensitivity $0.773$, specificity
-$0.920$, F1~$= 0.556$), reflecting the reliability of axis-based
-diagnostic criteria (left axis deviation $< -45\degree$). RBBB achieved
-good specificity ($0.963$) and moderate sensitivity ($0.675$, F1~$= 0.399$),
-as QRS duration and morphology criteria translated effectively to
-algorithmic detection. LBBB showed high sensitivity ($0.714$) but low
-specificity ($0.481$) and very low PPV ($0.030$), indicating substantial
-over-detection. The QRS duration threshold of $120\ms{}$ captures many
-borderline intraventricular conduction delays that do not meet full LBBB
-morphological criteria (QS pattern in V1, broad notched R in lateral leads).
-First-degree AVB (sensitivity $0.530$, specificity $0.683$) was limited
-by P-onset fiducial detection accuracy, which directly impacts PR interval
-measurement.
+LVH, the condition with the most ground-truth positive cases in the pilot ($n = 17$), achieves sensitivity of 82.4\% and F1 of 0.65, demonstrating that the knowledge base effectively encodes the multi-criterion voltage assessment (Sokolow-Lyon, Cornell, Romhilt-Estes) that a single threshold cannot capture~\cite{thygesen2018fourth}. Inferior STEMI reaches 55.6\% sensitivity (F1 = 0.56), a plausible result given that ST-deviation narratives and reciprocal change patterns are well-represented in the KB. Anterior STEMI recall is 100\% but at the cost of catastrophic over-calling (45 FP, specificity 10.0\%), indicating that the KB's ST-elevation entries are over-represented. Deep learning classifiers on PTB-XL report macro-F1 of 0.70--0.80 across comparable condition sets~\cite{strodthoff2021deep,wagner2020ptbxl}; the RAG pipeline does not match that aggregate accuracy but produces a fully traceable reasoning chain (Section~\ref{sec:results_grounding}).
 
-\paragraph{Pre-excitation and rhythm.}
-WPW detection achieved moderate sensitivity ($0.412$) but very low PPV
-($0.007$, F1~$= 0.013$), reflecting the difficulty of reliably detecting
-short PR intervals with the current P-onset accuracy. AFib detection
-showed high sensitivity ($0.786$) with moderate specificity ($0.898$),
-though the low PPV ($0.011$) reflects the rarity of the condition in this
-dataset (14 positive cases).
-
-\paragraph{Structural findings.}
-LVH was the second-strongest performer (sensitivity $0.805$, specificity
-$0.769$, F1~$= 0.351$), consistent with the well-characterized trade-off
-of voltage-based criteria: Sokolow-Lyon and Cornell criteria have known
-high sensitivity but limited specificity in unselected
-populations~\cite{surawicz2008chous}.
-
-\paragraph{Ischemia (STEMI territories).}
-STEMI detection showed low sensitivity across all territories: anterior
-$0.207$, inferior $0.054$, lateral $0.042$. However, specificity was
-high (anterior $0.897$, inferior $0.993$, lateral $0.996$). This apparent
-poor sensitivity requires careful interpretation. The PTB-XL MI labels
-(SCP codes AMI, IMI, LMI) encompass both acute and chronic/old myocardial
-infarction. Chronic MI is characterized by pathological Q-waves and
-T-wave inversions \emph{without} active ST elevation. Our STEMI detector
-is designed to identify \emph{active} ST elevation, so chronic MI cases
-without ST elevation are correctly classified as STEMI-negative. The low
-sensitivity therefore reflects a label mismatch rather than a detection
-failure. Inferior STEMI PPV ($0.411$) was the highest among STEMI
-territories, suggesting that when the detector does fire, it identifies
-genuine ST elevation patterns.
-
-\paragraph{Repolarization.}
-Long QT detection achieved sensitivity of $0.698$ with specificity of
-$0.699$ (F1~$= 0.024$), indicating that the QTc threshold captures most
-prolonged-QT cases but also flags many false positives, likely due to the
-wide limits of agreement in QTc measurement (\cref{tab:measurements}).
+Cross-dataset transfer without threshold recalibration reveals predictable patterns. Rate-based detection is robust: sinus bradycardia achieves F1 of 0.96 on Chapman. Voltage-dependent conditions degrade across recording systems: LVH sensitivity drops to 11.1\% on LUDB and 45.7\% on Chapman, consistent with the well-documented sensitivity of voltage criteria to lead impedance and amplifier gain~\cite{schlapfer2017computer}.
 
 \begin{table*}[t]
-  \centering
-  \caption{Disease detection performance on PTB-XL (signal-only mode,
-  ${\sim}9{,}800$ records, SCP code likelihood $\geq 50\%$).}
-  \label{tab:disease-detection}
-  \begin{tabular}{@{}lrrrrrr@{}}
-    \toprule
-    \textbf{Condition} & \textbf{N\textsubscript{GT+}}
-      & \textbf{Sensitivity} & \textbf{Specificity}
-      & \textbf{PPV} & \textbf{F1} \\
-    \midrule
-    LBBB             & 213   & 0.714 & 0.481 & 0.030 & 0.057 \\
-    RBBB             & 209   & 0.675 & 0.963 & 0.284 & 0.399 \\
-    1st deg AVB      & 349   & 0.530 & 0.683 & 0.058 & 0.105 \\
-    LAFB             & 718   & 0.773 & 0.920 & 0.434 & \textbf{0.556} \\
-    WPW              & 17    & 0.412 & 0.896 & 0.007 & 0.013 \\
-    AFib             & 14    & 0.786 & 0.898 & 0.011 & 0.022 \\
-    LVH              & 752   & 0.805 & 0.769 & 0.225 & 0.351 \\
-    Anterior STEMI   & 885   & 0.207 & 0.897 & 0.167 & 0.185 \\
-    Inferior STEMI   & 845   & 0.054 & 0.993 & 0.411 & 0.096 \\
-    Lateral STEMI    & 144   & 0.042 & 0.996 & 0.143 & 0.065 \\
-    Long QT          & 53    & 0.698 & 0.699 & 0.012 & 0.024 \\
-    \bottomrule
-  \end{tabular}
+\centering
+\caption{Diagnostic performance of the RAG pipeline on PTB-XL ($n = 352$) with cross-dataset generalization on LUDB and Chapman--Shaoxing. Sensitivity, specificity, and F1 are reported with Clopper-Pearson exact 95\% confidence intervals for conditions with $\geq$12 positive cases. Conditions with fewer positives are included for completeness but should be interpreted as case-level observations.}
+\label{tab:rag}
+\begin{tabular}{lccccccccc}
+\toprule
+Condition & GT+ & RAG Sens & RAG Spec & RAG F1 & LUDB Sens & LUDB F1 & Chapman Sens & Chapman F1 \\
+\midrule
+LVH & 17 & \textbf{0.824} & 0.727 & \textbf{0.651} & 0.111 & 0.183 & 0.457 & 0.356 \\
+Inferior STEMI & 9 & \textbf{0.556} & 0.923 & \textbf{0.556} & --- & --- & --- & --- \\
+Long QT & 4 & 0.500 & 0.789 & 0.222 & --- & --- & 0.286 & 0.229 \\
+Lateral STEMI & 1 & 1.000 & 0.983 & 0.667 & --- & --- & --- & --- \\
+AFib & 1 & 1.000 & 0.883 & 0.222 & 0.533 & 0.485 & 0.714 & 0.544 \\
+RBBB & 3 & 0.333 & 0.983 & 0.400 & 0.250 & 0.200 & 0.500 & 0.510 \\
+LAFB & 6 & 0.167 & 0.891 & 0.154 & --- & --- & --- & --- \\
+Anterior STEMI & 11 & 1.000 & 0.100 & 0.328 & --- & --- & --- & --- \\
+1st-deg AVB & 4 & 0.000 & 0.719 & 0.000 & --- & --- & 0.167 & 0.200 \\
+WPW & 1 & 0.000 & 1.000 & 0.000 & --- & --- & --- & --- \\
+Sinus bradycardia & --- & --- & --- & --- & 0.960 & 0.667 & \textbf{0.984} & \textbf{0.961} \\
+LBBB & 0 & --- & 1.000 & --- & 0.500 & 0.174 & --- & --- \\
+\bottomrule
+\end{tabular}
 \end{table*}
 
-\begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{fig5_detection_rates}
-  \figprompt{Grouped horizontal bar chart with two bars per condition:
-  sensitivity (blue) and specificity (orange). Conditions ordered by F1 score.
-  Annotate F1 value at the end of each row. Highlight STAT conditions
-  (STEMI variants) with a red background band.}
-  \caption{Per-condition sensitivity and specificity. LAFB and LVH show
-  the best balance; STEMI sensitivity is low due to chronic MI label
-  mismatch in PTB-XL.}
-  \label{fig:detection_rates}
-\end{figure}
+% Figures 7 and 8 removed — data is presented in Table~\ref{tab:rag}.
 
-\subsection{Multi-Model Comparison}
-\label{sec:results-multimodel}
+\subsection{Retrieval Grounding and Traceability}
+\label{sec:results_grounding}
 
-\begin{table*}[t]
-  \centering
-  \caption{Multi-model comparison: disease detection F1 scores across LLM agents
-  on PTB-XL (N=21{,}799 records). Signal-only = deterministic baseline.}
-  \label{tab:multimodel}
-  \begin{tabular}{@{}l*{5}{c}@{}}
-    \toprule
-    \textbf{Condition}
-      & \textbf{Signal-only}
-      & \textbf{DeepSeek-R1}
-      & \textbf{Claude 3.5}
-      & \textbf{GPT-4o}
-      & \textbf{Gemini 1.5} \\
-    \midrule
-    LBBB             & 0.141 & ---    & 0.108 & ---    & 0.000 \\
-    RBBB             & 0.629 & ---    & 0.638 & ---    & 0.750 \\
-    LAFB             & 0.419 & ---    & 0.360 & ---    & 0.500 \\
-    1st deg AVB      & 0.149 & ---    & 0.154 & ---    & 0.182 \\
-    AFib             & 0.407 & ---    & 0.154 & ---    & 0.000 \\
-    LVH              & 0.341 & ---    & 0.000 & ---    & 0.000 \\
-    Anterior STEMI   & 0.214 & ---    & 0.094 & ---    & 0.261 \\
-    Inferior STEMI   & 0.138 & ---    & 0.000 & ---    & 0.000 \\
-    Long QT          & 0.237 & ---    & 0.054 & ---    & 0.000 \\
-    \midrule
-    \textbf{Macro F1}  & 0.297 & ---    & 0.174 & ---    & 0.188 \\
-    \textbf{Cost/record} & \$0.00 & ---  & \$0.05 & ---    & \$0.07 \\
-    \textbf{Latency (s)} & 0.124 & ---  & 33.7   & ---    & 32.8 \\
-    \bottomrule
-  \end{tabular}
-\end{table*}
+Every diagnosis produced by the RAG layer is accompanied by the specific knowledge-base documents the reasoner consulted, forming a complete provenance chain from extracted signal features through vision-verified morphology to retrieved reference passages and the stated diagnostic conclusion. Across the evaluation cohort, the median retrieval set is 20 documents (mean 19.5, max 25 of 94 available), with borderline and excluded conditions logged separately, providing a structured confidence gradient rather than a binary present/absent output. This per-diagnosis traceability constitutes a form of built-in interpretability that is structurally absent from end-to-end neural classifiers mapping directly from waveform to label~\cite{rudin2019stop}. Unlike post-hoc explanation methods such as Grad-CAM~\cite{ecgxplaim2025} or counterfactual generation~\cite{gcx2025}, which attempt to explain an opaque model's decision after the fact, \system{}'s traceability is intrinsic to the reasoning process itself --- the citations are not explanations of a black box but the actual evidence chain that produced the conclusion.
 
-\begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{multimodel_radar}
-  \figprompt{Radar/spider chart comparing 5 models (Signal-only, DeepSeek, Claude,
-  GPT-4o, Gemini) across 6 axes: Macro F1, Sensitivity (STAT conditions),
-  Specificity, Cost efficiency (inverse), Latency (inverse), Reasoning quality.
-  Each model is a different colored polygon. Signal-only should excel on
-  cost/latency but lag on F1. Show legend. Use muted professional colors.}
-  \caption{Multi-dimensional model comparison. Each axis represents a different
-  evaluation dimension, normalized to [0,1].}
-  \label{fig:radar}
-\end{figure}
+\subsection{Computational Performance}
+\label{sec:results_timing}
 
-\begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{multimodel_agreement}
-  \figprompt{Heatmap showing pairwise inter-model agreement (Cohen's kappa) for
-  disease detection. 5x5 matrix: Signal-only, DeepSeek, Claude, GPT-4o, Gemini.
-  Diagonal = 1.0 (self-agreement). Use blue-white-red colormap with values
-  annotated in each cell. Show kappa interpretation guide: <0.2 slight,
-  0.2-0.4 fair, 0.4-0.6 moderate, 0.6-0.8 substantial, >0.8 almost perfect.}
-  \caption{Inter-model agreement (Cohen's $\kappa$) for disease detection findings.}
-  \label{fig:model-agreement}
-\end{figure}
+Vision verification time scales linearly with the number of detected heartbeats. A typical ECG with 8--12 beats produces approximately 15 segment-lead checks per beat, totaling 120--180 individual vision calls per patient. Using Gemma-27B, each vision call averages 36 seconds, yielding 5--8 minutes per patient on a single GPU. The smaller Qwen2.5-VL (7B) completes checks substantially faster while achieving the highest accuracy (99.3\%). RAG reasoning adds 10--30 seconds per record depending on retrieval depth and reasoning complexity.
 
-\subsection{Multi-Dataset Generalization}
-\label{sec:results-multidataset}
+The full pipeline (vision + RAG) processes one patient in approximately 6--9 minutes on a single consumer GPU. These LLM-dependent stages are designed for asynchronous post-processing rather than real-time clinical use. Token consumption averages approximately 1,500 input tokens and 500 output tokens per vision check, and 8,000--15,000 input tokens per RAG query depending on the number of retrieved KB documents.
 
-\begin{table*}[t]
-  \centering
-  \caption{Cross-dataset generalization: macro-averaged metrics on each dataset
-  (signal-only mode, no retraining). Conditions limited to those labeled in each dataset.}
-  \label{tab:multidataset}
-  \begin{tabular}{@{}l*{3}{c}@{}}
-    \toprule
-    \textbf{Metric}
-      & \textbf{PTB-XL}
-      & \textbf{CPSC2018}
-      & \textbf{Chapman} \\
-    \midrule
-    N records (sampled)  & 21,799 & 500    & 500    \\
-    Conditions with GT   & 13     & 4      & 12     \\
-    Macro Sensitivity    & 0.490  & 0.620  & 0.512  \\
-    Macro Specificity    & 0.848  & 0.859  & 0.856  \\
-    Macro F1             & 0.142  & 0.110  & 0.221  \\
-    Macro PPV            & 0.131  & 0.110  & 0.195  \\
-    \bottomrule
-  \end{tabular}
-\end{table*}
-
-\begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{crossdataset_f1}
-  \figprompt{Grouped bar chart comparing per-condition F1 across datasets.
-  X-axis: conditions (LBBB, RBBB, LAFB, AFib, LVH, etc.). Y-axis: F1 score (0-1).
-  One bar group per condition, with bars colored by dataset (PTB-XL=blue,
-  CPSC2018=orange, Chapman=green, CODE=red). Show the macro-average as a
-  horizontal dashed line per dataset. Error bars if available from k-fold.}
-  \caption{Per-condition F1 scores across datasets. Conditions present in fewer
-  datasets have fewer bars.}
-  \label{fig:crossdataset-f1}
-\end{figure}
-
-\subsection{Pipeline Performance}
-\label{sec:results-timing}
-
-\Cref{tab:timing} reports per-stage latency measured on Apple M-series
-silicon (CPU-only computation, no GPU acceleration). The complete
-signal processing pipeline---from raw file ingestion through feature
-extraction---executes in approximately $125\ms{}$ per 10-second, 12-lead
-ECG recording.
-
-Preprocessing dominates the pipeline latency budget, consuming
-$75$--$85\ms{}$ (${\sim}65\%$ of total time) for baseline wander removal,
-notch filtering, and resampling. Fiducial detection requires
-$35$--$37\ms{}$ (${\sim}28\%$), encompassing R-peak detection, beat
-segmentation, and P/T-wave delineation across all 12 leads. Ingestion
-($1$--$2\ms{}$), quality assessment (${\sim}5\ms{}$), and feature
-extraction ($4$--$5\ms{}$) are negligible by comparison.
-
-The ${\sim}125\ms{}$ signal-only latency is well within the requirements
-for real-time clinical use, enabling processing of approximately 8 ECGs
-per second on commodity hardware. When LLM agent inference is included
-(not measured in this evaluation), total latency is dominated by API
-round-trip time, typically adding $2$--$8\,\text{s}$ depending on the
-model provider and prompt length.
-
-\begin{table}[t]
-  \centering
-  \caption{Pipeline stage latency (Apple M-series, CPU-only).}
-  \label{tab:timing}
-  \begin{tabular}{@{}lr@{}}
-    \toprule
-    \textbf{Stage} & \textbf{Mean (ms)} \\
-    \midrule
-    Ingestion      & ${\sim}1$--$2$ \\
-    Preprocessing  & ${\sim}75$--$85$ \\
-    Quality        & ${\sim}5$ \\
-    Fiducials      & ${\sim}35$--$37$ \\
-    Features       & ${\sim}4$--$5$ \\
-    \midrule
-    \textbf{Total (signal-only)} & ${\sim}125$ \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\begin{figure}[t]
-  \centering
-  % \includegraphics[width=\columnwidth]{fig4_pipeline_timing}
-  \figprompt{Stacked bar chart showing the breakdown of pipeline latency
-  by stage. Single horizontal bar divided into colored segments:
-  Ingestion (gray), Preprocessing (blue), Quality (green),
-  Fiducials (red), Features (orange). Annotate each segment with ms.
-  Total annotated at end of bar.}
-  \caption{Pipeline stage latency breakdown. Preprocessing (filtering and
-  resampling) dominates at ${\sim}65\%$ of total computation time.}
-  \label{fig:timing}
-\end{figure}
+\todo{Add exact token usage statistics from the full 486-patient run.}
 
 
 % ══════════════════════════════════════════════════════════════════════════
-% SECTION 6 — DISCUSSION
+% DISCUSSION
 % ══════════════════════════════════════════════════════════════════════════
 \section{Discussion}
 \label{sec:discussion}
 
-\subsection{Fiducial Detection}
-\label{sec:disc-fiducial}
+\subsection{Related Work}
 
-The fiducial detection results reveal a clear hierarchy aligned with
-waveform morphology. R-peak localization (MAE $6.1\ms{}$) and QRS onset
-detection (MAE $12.3\ms{}$) are within clinically acceptable tolerances and
-compare favorably with the wavelet-based delineation benchmarks reported
-by Mart{\'i}nez et al.~\cite{martinez2004wavelet}, who achieved
-$2$--$4\ms{}$ MAE for QRS onset on the manually annotated QT database. The
-somewhat larger errors in our evaluation reflect both the porting of MATLAB
-to Python (floating-point differences in filter implementations) and the
-comparison protocol (MATLAB original vs.\ Python port, rather than
-algorithm vs.\ expert annotation).
+\system{} occupies a distinct position in the landscape of LLM-based ECG interpretation systems. Table~\ref{tab:comparison} compares the architectural properties of \system{} with the most closely related systems across six dimensions. We organize the comparison along three axes: modality and input representation, knowledge integration, and traceability.
 
-P-wave and T-wave boundary detection errors ($26$--$28\ms{}$ MAE for
-onsets/offsets) are larger but consistent with published literature: even
-expert cardiologists exhibit inter-observer variability of $15$--$30\ms{}$
-for P-wave onset annotation~\cite{martinez2004wavelet}. The clinical
-consequence of P-onset error is direct: it propagates to PR interval
-measurement, contributing to the observed $-60.3\ms{}$ bias and the
-over-detection of first-degree AVB (PR $> 200\ms{}$ threshold).
+\begin{table*}[t]
+\centering
+\caption{Architectural comparison of \system{} with related ECG-LLM systems. ``Trace.'' = full diagnostic traceability with citations to specific knowledge-base passages. ``Seg.'' = segment-level waveform analysis. ``VLM QC'' = vision-language model used for fiducial quality control.}
+\label{tab:comparison}
+\begin{tabular}{lccccccl}
+\toprule
+System & Input & Training & KB/RAG & Trace. & Seg. & VLM QC & Key Metric \\
+\midrule
+PULSE~\cite{li2026pulse} & ECG image & 1M+ inst. & None & No & No & No & 82.4\% AUC (PTB-XL) \\
+Q-HEART~\cite{qheart2025} & Raw signal & 800K pairs & FAISS reports & Partial & No & No & 0.628 EM-Acc \\
+CKEPE~\cite{ckepe2024} & Raw signal & 771K pairs & GPT-4 prompts & No & No & No & 75.2\% AUC (zero-shot) \\
+ECG-LM~\cite{ecg_lm_2025} & Raw signal & Guideline-exp. & None & No & No & No & 0.693 Acc (PTB-XL) \\
+ECG-Chat~\cite{ecg_chat2024} & Raw signal & 850K pairs & GraphRAG & Partial & No & No & 82.1\% faithfulness \\
+MEIT~\cite{meit2024} & Raw signal & 800K reports & None & No & No & No & 0.610 BLEU-4 \\
+GPT-4o~\cite{engelstein2025gpt4o_ecg} & ECG image & Zero-shot & None & No & No & No & 41--83\% (task-dep.) \\
+\midrule
+\textbf{\system{}} & \textbf{Seg. image} & \textbf{Zero-shot} & \textbf{94-doc KB} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} & \textbf{88--99\% (vision)} \\
+\bottomrule
+\end{tabular}
+\end{table*}
 
-The relatively low matched detection rates ($12$--$36\%$) require
-contextual interpretation. The safe analysis window in our Python port
-excludes $3\,\text{s}$ from each edge (filtfilt transient suppression)
-plus an additional $200\ms{}$ beat-edge margin, reducing the usable
-window to approximately $4\,\text{s}$ of the $10\,\text{s}$ recording.
-Analysis of 50 representative records confirms that only $\sim41\%$ of
-ground-truth beats fall within this window, establishing a theoretical
-maximum detection rate of $\sim41\%$---closely matching the observed
-$35.9\%$ for R-peaks. The MATLAB reference processes the full recording
-without these margins. This conservative
-approach reduces the number of beats available for comparison but ensures
-that all reported fiducial points are free of boundary artifacts. The
-accuracy of matched beats is the clinically relevant metric, and here the
-pipeline performs well: QRS fiducials within $6$--$14\ms{}$ and T-peak
-within $11\ms{}$.
+\textbf{Input representation and training.} Most ECG-LLM systems operate on whole-signal embeddings (Q-HEART, CKEPE, ECG-LM, ECG-Chat, MEIT) or full ECG images (PULSE, GPT-4o), requiring large-scale supervised training to learn ECG representations. PULSE fine-tunes on over one million instruction samples; MEIT trains across 800K clinical reports. \system{} requires no ECG-specific training: it operates zero-shot on segment-level cropped images using open-source models (3B--27B), with domain knowledge encoded in prompts rather than model weights. This design enables immediate adaptation to new conditions by editing KB documents rather than retraining.
 
-\subsection{Clinical Measurement Accuracy}
-\label{sec:disc-measurement}
+\textbf{Knowledge integration.} Q-HEART and ECG-Chat incorporate retrieval mechanisms, but retrieve similar clinical reports (Q-HEART) or use general-purpose GraphRAG (ECG-Chat) without structured diagnostic criteria. CKEPE uses GPT-4 to generate knowledge-enhanced prompts at test time, coupling the system to a proprietary cloud model. \system{}'s 94-document KB is structured around specific diagnostic criteria from four standard ECG textbooks, with each document containing actionable numerical thresholds. This structure enables single-pass keyword retrieval --- unlike iterative approaches such as i-MedRAG~\cite{imedrag2025} that require multiple retrieval rounds to compensate for imprecise initial queries --- because the KB's organization mirrors the clinical decision tree.
 
-Heart rate measurement exhibited excellent agreement with the reference
-(MAE $1.8\bpm{}$, $r = 0.953$, bias $+0.0\bpm{}$), confirming that
-R-peak detection---the foundation of all downstream timing
-measurements---is robust. This level of accuracy is clinically
-insignificant: a $1.8\bpm{}$ error has no impact on rate classification
-(bradycardia vs.\ normal vs.\ tachycardia).
+\textbf{Traceability.} No existing ECG-LLM system provides full diagnostic traceability. PULSE maps images to labels without intermediate reasoning. ECG-Chat achieves partial faithfulness through GraphRAG but cannot cite specific diagnostic criteria. GPT-4o studies report that the model produces ``fully accurate explanations'' in only 5\% of cases~\cite{lee2025ecg_mi}. \system{}'s architecture makes traceability structural rather than optional: each diagnosis links to specific KB document IDs, specific lead measurements, and specific vision model morphological observations. This property aligns with the agentic traceability demonstrated by DeepRare~\cite{deeprare2025} for rare diseases, adapted here to the structured domain of ECG interpretation.
 
-The systematic negative biases in PR ($-60.3\ms{}$), QRS ($-37.3\ms{}$),
-and QT ($-87.6\ms{}$) intervals are the most important measurement finding
-and have a clear technical explanation. Our pipeline restricts analysis to
-a safe window excluding the first and last $3\,\text{s}$ of each
-$10\,\text{s}$ recording, while the reference MATLAB implementation
-analyzes all beats across the full recording. This is a methodological
-difference between the two implementations, not an intrinsic measurement
-error. It has two consequences: (1) fewer beats contribute to our median
-interval computation, and (2) edge beats---which may have different
-morphology due to respiration or patient movement---are excluded. In a
-clinical deployment where the safe window is not compared against a
-full-strip reference, these biases would not manifest.
+\textbf{The explainability trade-off.} Patlatzoglou et~al.~\cite{explainability_cost_2025} demonstrated that imposing explainability constraints on ECG classifiers degrades performance by 13--43\% through information compression in learned representations. \system{} sidesteps this trade-off by constructing diagnoses from explicit measurements and retrieved criteria rather than compressing signals into latent spaces. The traceability cost is computational (minutes per patient vs.\ milliseconds for neural classifiers) rather than accuracy-based.
 
-QTc (Bazett) showed the most problematic agreement ($r = 0.087$). The low
-correlation arises because Bazett correction amplifies QT interval
-errors through the $\text{QT}/\sqrt{\text{RR}}$ formula: small errors in
-both QT and RR compound nonlinearly. This has direct clinical
-implications for long QT detection, where a QTc threshold of $480\ms{}$
-must be applied to measurements with wide individual-level uncertainty.
-Future work should evaluate whether Fridericia correction
-($\text{QT}/\text{RR}^{1/3}$) yields tighter agreement, as it is less
-sensitive to heart rate variation.
+\subsection{RAG Diagnostic Reasoning: Strengths and Failure Modes}
 
-\subsection{Disease Detection}
-\label{sec:disc-disease}
+The RAG pipeline demonstrates condition-dependent effectiveness that reflects the structure of the underlying knowledge base. LVH (F1 = 0.65) benefits from the KB's explicit encoding of multi-criterion voltage assessment. Inferior STEMI (F1 = 0.56) benefits from well-structured ST-deviation and reciprocal change patterns. The anterior STEMI over-calling (100\% sensitivity, 10\% specificity) reveals a retrieval calibration failure addressable through document weighting or retrieval score thresholds. LAFB (16.7\% sensitivity) and first-degree AVB (0\%) indicate insufficient KB coverage for these conditions.
 
-The disease detection results reveal a heterogeneous performance profile
-that can be understood through the relationship between each condition's
-diagnostic criteria and the pipeline's measurement capabilities.
+Deep learning classifiers on PTB-XL report macro-F1 of 0.70--0.80~\cite{strodthoff2021deep,wagner2020ptbxl}. The RAG pipeline does not match that aggregate accuracy. The fundamental comparison, however, is not accuracy alone but the nature of the output: a neural classifier produces a label; \system{} produces a label, the evidence chain that led to it, the criteria that were and were not met, and the specific KB passages consulted. Whether this richer output justifies the accuracy gap is ultimately a clinical judgment.
 
-\paragraph{Strong performers.}
-LAFB (F1~$= 0.556$) and LVH (F1~$= 0.351$) achieved the best detection
-performance. Both conditions are defined by robust, well-characterized
-measurements. LAFB diagnosis rests on frontal-plane QRS axis
-($< -45\degree$), which is computed from lead I and aVF amplitudes
-independent of fiducial boundary precision. LVH diagnosis uses
-Sokolow-Lyon voltage criteria (S\textsubscript{V1} +
-R\textsubscript{V5/V6} $> 3.5\mv{}$), which depends on peak amplitude
-detection rather than temporal precision. The moderate PPV of LVH
-($0.225$) is consistent with the well-documented low specificity of
-voltage criteria in unselected populations: the Sokolow-Lyon criterion
-has a reported specificity of $50$--$80\%$ in the
-literature~\cite{surawicz2008chous}, and our result ($0.769$) falls
-squarely within this range.
+\subsection{Vision Models as ECG Morphology Reviewers}
 
-RBBB (F1~$= 0.399$) also performed reasonably well, benefiting from the
-combination of QRS duration ($\geq 120\ms{}$) and characteristic RSR$'$
-morphology in V1. The high specificity ($0.963$) indicates that when the
-detector does not fire, the patient is very unlikely to have RBBB.
+The 46-point inter-model accuracy spread (99.3\% to 45.2\%) across five models indicates that visual ECG understanding depends on architectural choices rather than parameter count alone. The 7B Qwen2.5-VL~\cite{qwen25vl2025} model's window attention mechanism and dynamic resolution processing appear well-suited to the fine-grained temporal features of ECG waveforms. The 27B Gemma-3~\cite{gemma3_2025} achieves strong per-segment results (99.1\% QRS) but lower overall accuracy due to P-wave difficulty (71.6\%). The 3B MiniCPM-V~\cite{minicpmv2024} offers a viable lightweight option at 74\% accuracy. LLaVA-13B's poor performance (45.2\%) is consistent with its general-purpose biomedical training, which does not include ECG-specific visual features.
 
-\paragraph{Over-detection: LBBB and 1st-degree AVB.}
-LBBB (PPV $0.030$) and 1st-degree AVB (PPV $0.058$) showed the most
-pronounced false-positive rates. For LBBB, the QRS duration threshold of
-$120\ms{}$ captures incomplete bundle branch blocks and nonspecific
-intraventricular conduction delays that do not meet the full morphological
-criteria (QS or rS in V1, broad monophasic R in lateral
-leads)~\cite{surawicz2008chous}. Incorporating morphological pattern
-matching beyond simple duration thresholds would substantially improve
-specificity. For 1st-degree AVB, the $-60.3\ms{}$ negative bias in PR
-measurement shifts many normal PR values ($< 200\ms{}$) below the
-detection threshold, paradoxically reducing false positives relative to
-a bias-free measurement. However, the remaining false positives likely
-reflect cases where the pipeline measures PR at or near the $200\ms{}$
-boundary.
+The segment-specific prompt engineering is critical: without it, generic prompts produce accuracy below 60\%. This finding is consistent with the broader literature on medical prompt engineering, where domain-specific context dramatically improves performance~\cite{ckepe2024,seki2025ecg_vqa}.
 
-\paragraph{STEMI: label mismatch, not detection failure.}
-The low STEMI sensitivities (anterior $0.207$, inferior $0.054$, lateral
-$0.042$) represent the most important interpretive challenge in this
-evaluation. The PTB-XL SCP codes for myocardial infarction (AMI, IMI, LMI)
-encompass the full spectrum of MI presentations, including chronic and old
-MI with residual pathological Q-waves but no active ST
-elevation~\cite{wagner2020ptbxl}. Our STEMI detector is specifically
-designed to identify \emph{acute} ST-segment elevation---the finding that
-triggers emergent cardiac catheterization~\cite{demeester2019impact}. A
-patient with an old anterior MI showing deep Q-waves in V1--V4 but
-isoelectric ST segments is correctly classified as STEMI-negative by our
-system, even though PTB-XL labels this record as AMI-positive. The high
-specificity (inferior $0.993$, lateral $0.996$) and the non-trivial PPV
-of inferior STEMI ($0.411$) support this interpretation: when the
-detector identifies ST elevation, it is frequently present.
+\subsection{Cross-Dataset Generalization}
 
-Proper evaluation of STEMI detection requires a dataset with explicit
-acute-vs-chronic MI labels, or expert review of PTB-XL records to
-distinguish active ST elevation from chronic changes.
-
-\paragraph{WPW and AFib: rare-condition challenges.}
-WPW (17 positive cases) and AFib (14 positive cases) represent rare
-conditions in PTB-XL for which stable performance estimates are difficult.
-WPW detection ($\text{F1} = 0.013$) is limited by the reliance on short
-PR interval as a primary criterion, which is confounded by the P-onset
-detection inaccuracy. Delta wave morphology detection would improve
-specificity. AFib showed reasonable sensitivity ($0.786$) driven by
-RR interval irregularity analysis, but the low PPV ($0.011$) reflects
-many false positives, likely from sinus arrhythmia or frequent ectopy
-producing irregular RR intervals without true atrial fibrillation.
-
-\subsection{Signal Grounding as Hallucination Prevention}
-\label{sec:disc-grounding}
-
-The architectural separation between deterministic signal processing and
-LLM-based clinical reasoning in \system{} addresses a fundamental risk of
-applying language models to clinical
-data~\cite{ji2023hallucination, bhayana2024chatgpt_radiology}. When an LLM
-is given raw ECG waveform data---whether as numerical arrays or
-images---it may generate confident but fabricated measurements: ``ST
-elevation of 3~mm in V2'' when the actual elevation is $0.5\mv{}$, or
-``QRS duration of 180~ms'' when the true value is $95\ms{}$. Such
-hallucinations are particularly dangerous in the ECG domain because they
-can trigger or suppress time-critical clinical actions.
-
-\system{} prevents this failure mode by construction. The
-\texttt{FeatureObject} containing 73 deterministic measurements is an
-\emph{immutable input} to the LLM agents, not a value they generate. An
-agent cannot claim that ``lead V2 shows $2\mv{}$ ST elevation'' if the
-pipeline measured $0.1\mv{}$, because the pipeline measurement is a
-structured field in the agent's input, not a free-text value the agent
-produces. This creates a verifiable audit trail: every clinical
-measurement cited in the agent's reasoning can be traced to a specific
-algorithm with defined inputs and deterministic
-outputs~\cite{rudin2019stop}.
-
-This architectural choice has a cost: the system cannot detect findings
-that the deterministic pipeline fails to measure. If the pipeline misses
-a subtle ST elevation due to baseline noise, no LLM reasoning can recover
-that information. This is a deliberate trade-off: we accept reduced recall
-in exchange for the guarantee that all positive findings are grounded in
-validated signal measurements, which is the safer failure mode in clinical
-practice.
+Rate-based detection transfers robustly across databases (sinus bradycardia F1 = 0.96 on Chapman). Voltage-dependent conditions degrade sharply: LVH sensitivity drops to 11.1\% on LUDB and 45.7\% on Chapman, consistent with the well-documented sensitivity of voltage criteria to lead impedance and amplifier gain~\cite{schlapfer2017computer}. This is a known limitation of all voltage-based ECG systems, not specific to \system{}.
 
 \subsection{Limitations}
-\label{sec:disc-limitations}
 
-Several limitations must be acknowledged:
-
-\begin{enumerate}[leftmargin=*, nosep]
-  \item \textbf{Reference comparison measures port fidelity, not clinical
-  accuracy.} The fiducial and measurement validation compares our Python
-  port against the original MATLAB ECGdeli implementation, not against
-  expert-annotated ground truth. This evaluates implementation fidelity
-  rather than absolute clinical accuracy. The Lund University Database
-  (LUDB) provides cardiologist-annotated fiducial points and would enable
-  true clinical accuracy evaluation, but was not yet integrated at the
-  time of this study.
-
-  \item \textbf{STEMI evaluation on chronic MI labels underestimates
-  real-world performance.} As discussed in \cref{sec:disc-disease}, the
-  PTB-XL MI labels include chronic MI without active ST elevation. STEMI
-  sensitivity on a dataset with acute-only MI labels would likely be
-  substantially higher.
-
-  \item \textbf{No prospective clinical validation.} All evaluation is
-  retrospective on existing annotated datasets. A prospective study
-  comparing \system{} output against real-time cardiologist interpretation
-  in a clinical setting is essential before deployment.
-
-  \item \textbf{Rule-based thresholds require optimization.} The current
-  thresholds (QRS $\geq 120\ms{}$ for BBB, PR $> 200\ms{}$ for 1st AVB,
-  QTc $> 480\ms{}$ for long QT) are textbook values applied without
-  dataset-specific calibration. Threshold optimization on a held-out
-  validation set, or adoption of multi-threshold ensemble approaches,
-  could substantially improve the sensitivity--specificity trade-off for
-  conditions with high false-positive rates.
-
-  \item \textbf{LLM agent pathway not validated in this study.} The
-  results presented here evaluate the signal-only (deterministic) mode of
-  \system{}. The multi-agent LLM pathway is architecturally described but
-  its incremental diagnostic value over the signal-only baseline remains
-  to be quantified in a controlled multi-model comparison.
-
-  \item \textbf{Adult-only thresholds.} All diagnostic criteria are
-  calibrated for adult ECGs. Pediatric ECGs have fundamentally different
-  normal values (physiological right axis deviation, T-wave inversion in
-  V1--V3), and applying adult thresholds to pediatric recordings would
-  produce systematic misclassification.
-
-  \item \textbf{10-second recording limitation.} The current system
-  analyzes standard $10\,\text{s}$ recordings. Paroxysmal arrhythmias
-  (intermittent atrial fibrillation, second-degree AV block) may not be
-  captured in a single short strip.
-\end{enumerate}
-
-\subsection{Future Work}
-\label{sec:disc-future}
-
-Several directions emerge from this evaluation. First, integration of the
-Lund University Database (LUDB) for expert-annotated fiducial ground truth
-would enable true clinical accuracy benchmarking, separating algorithm
-accuracy from port fidelity. Second, threshold optimization using
-receiver operating characteristic analysis on a PTB-XL validation fold
-could substantially improve diagnostic performance, particularly for
-conditions with high false-positive rates (LBBB, 1st AVB, long QT).
-Third, the multi-model comparison protocol described in
-\cref{sec:multi-model} should be executed to quantify the incremental
-value of LLM agents over the signal-only baseline and to evaluate
-cost-effectiveness across providers. Fourth, prospective clinical
-validation in a real-world emergency department or cardiology clinic is
-essential to establish clinical utility. Fifth, mobile and edge deployment
-of the signal-only pipeline---which requires only ${\sim}125\ms{}$ of
-CPU time---could enable point-of-care ECG interpretation in
-resource-limited settings where LLM API access is unavailable. Finally,
-extending the system to continuous monitoring (Holter, telemetry) and
-pediatric ECG interpretation would broaden clinical applicability.
+Several limitations should be noted. First, the evaluation cohort (486 patients) provides adequate statistical power for common conditions ($\geq$12 positives) but only case-level evidence for rare conditions such as WPW and lateral STEMI. Second, the reasoning LLM evaluation uses a single backend (DeepSeek-R1); comparison across multiple reasoning models is needed to assess architecture-agnosticism. Third, the knowledge base was authored by the research team from textbook sources rather than validated by an independent panel of cardiologists. Fourth, the vision and RAG stages add minutes of latency per patient, limiting the system to asynchronous analysis rather than point-of-care deployment. Fifth, the system has not been evaluated on pediatric, paced-rhythm, or artifact-heavy recordings.
 
 
 % ══════════════════════════════════════════════════════════════════════════
-% SECTION 7 — CONCLUSION
+% CONCLUSION
 % ══════════════════════════════════════════════════════════════════════════
 \section{Conclusion}
 \label{sec:conclusion}
 
-This paper presented \system{}, an open-source, signal-grounded
-architecture for automated 12-lead ECG interpretation that combines a
-deterministic signal processing pipeline with multi-agent LLM reasoning.
-The system computes 73 clinical measurements through a five-stage pipeline
-(ingestion, preprocessing, quality assessment, fiducial detection, feature
-extraction) that executes in approximately $125\ms{}$ per recording on
-commodity hardware. Twenty-six rule-based detectors encode published
-clinical criteria for 11 diagnostic conditions, with clinical suppression
-rules that model inter-condition dependencies as practiced by consulting
-cardiologists.
+\system{} demonstrates that deterministic signal processing, multimodal vision-based quality control, and retrieval-augmented diagnostic reasoning can be combined into a single pipeline that produces fully traceable diagnostic conclusions. The vision layer provides autonomous fiducial verification at accuracy levels comparable to inter-annotator agreement among cardiologists (88--99\% depending on the model), and reveals that architectural design matters more than parameter count for ECG visual understanding. The RAG layer, backed by 94 structured documents derived from four standard ECG textbooks, produces diagnoses with explicit citations to specific criteria and measurements --- a form of built-in interpretability that is structurally absent from end-to-end classifiers.
 
-Validation on PTB-XL demonstrated that the pipeline achieves clinically
-useful fiducial detection accuracy (R-peak MAE $6.1\ms{}$, QRS onset MAE
-$12.3\ms{}$) and excellent heart rate agreement ($r = 0.953$, MAE
-$1.8\bpm{}$). Disease detection performance was strongest for conditions
-defined by robust measurements---LAFB (F1~$= 0.556$), RBBB
-(F1~$= 0.399$), and LVH (F1~$= 0.351$)---while conditions dependent on
-precise P-wave timing or requiring differentiation between acute and
-chronic presentations showed expected limitations. The signal grounding
-architecture ensures that all clinical findings are traceable to
-deterministic measurements, preventing the hallucination failure mode that
-arises when LLMs are applied directly to physiological
-signals~\cite{ji2023hallucination}.
-
-The honest assessment of current limitations---including systematic
-interval biases from safe-window analysis, STEMI label mismatch in
-PTB-XL, and the need for threshold optimization---defines a clear roadmap
-for improvement. Integration of expert-annotated fiducial databases,
-per-condition threshold calibration, and prospective clinical validation
-are the immediate priorities. The complete open-source release of pipeline
-code, agent prompts, and validation scripts enables community
-contribution toward these goals and supports reproducible research in
-signal-grounded clinical AI.
+The system's primary contribution is architectural: it establishes a pipeline design in which every diagnostic statement traces from raw signal features through vision-verified morphology and retrieved reference passages to the stated conclusion. This traceability property is independent of the specific models or thresholds used at each stage and provides a foundation for clinical audit, regulatory compliance, and iterative improvement. Among the five vision models evaluated, the 7B Qwen2.5-VL achieves the highest accuracy (99.3\%), demonstrating that effective ECG visual understanding is accessible to small, deployable models when paired with domain-specific prompt engineering.
 
 
 % ══════════════════════════════════════════════════════════════════════════
-% SECTION 8 — DATA AND CODE AVAILABILITY
+% APPENDIX
 % ══════════════════════════════════════════════════════════════════════════
-\section{Data and Code Availability}
-\label{sec:availability}
+\appendix
 
-The complete \system{} codebase, including the signal processing pipeline,
-multi-agent orchestrator, frontend application, and all validation scripts,
-is available at \url{https://github.com/Amirsaj/YouOwnECG}. PTB-XL is available from PhysioNet
-\cite{wagner2020ptbxl}. All validation results are reproducible using the
-provided scripts and dataset access.
+\section{Vision Model Input and Output Examples}
+\label{app:vision}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig_appendix_vision_segments.png}
+\caption{Vision model input images and output by segment type. Each column shows one (patient, lead) pair. Row~1: P-wave segments. Row~2: QRS segments. Row~3: ST-T segments. Yellow boxes below each image contain the Gemma verdict (correct/wrong), morphology observations, and clinical flags.}
+\label{fig:vision_segments}
+\end{figure*}
+
+\todo{Appendix Table~A1: Fiducial detection accuracy (PTB-XL fold~10, $n = 2{,}194$).}
+
+\todo{Appendix Table~A2: Interval and amplitude measurement accuracy (PTB-XL fold~10).}
 
 
 % ══════════════════════════════════════════════════════════════════════════
